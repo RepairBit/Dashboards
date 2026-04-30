@@ -119,6 +119,7 @@
   .shift-pill.day { background: var(--day-bg); color: var(--day); }
   .shift-pill.night { background: var(--night-bg); color: var(--night); }
   .shift-pill.mixed { background: var(--purple-bg); color: var(--purple); }
+  .shift-pill.terminated { background: rgba(255,255,255,0.08); color: #6E6E76; text-decoration: line-through; }
   .shift-pill.unknown { background: rgba(255,255,255,0.06); color: var(--muted); }
   .bph-cell.green { color: var(--green); font-weight: 600; }
   .bph-cell.orange { color: var(--orange); font-weight: 600; }
@@ -420,6 +421,7 @@
     const colors = leaders.map(t => {
       if (t.primary === "Day") return COLORS.day;
       if (t.primary === "Night") return COLORS.night;
+      if (t.primary === "Terminated") return COLORS.muted2;
       return COLORS.purple;
     });
     const ctx = document.getElementById('leadersChart');

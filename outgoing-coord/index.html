@@ -718,27 +718,71 @@
 
   function renderLeadersChart(leaders) {
     const labels = leaders.map(t => t.name);
-    const data = leaders.map(t => t.units);
-    const colors = leaders.map(t => {
-      if (t.primary === "Day") return COLORS.day;
-      if (t.primary === "Night") return COLORS.night;
-      if (t.primary === "Terminated") return COLORS.muted2;
-      return COLORS.purple;
+    // Each coord's bar = total boards, stacked as Passed (boards - kickbacks) + Kickback.
+    // Bar length still = total boards (same as before), but the red kickback
+    // segment makes problem coords visible at a glance.
+    const passedData = leaders.map(t => Math.max(0, t.units - (t.kickbacks || 0)));
+    const kickbackData = leaders.map(t => t.kickbacks || 0);
+    // Pre-compute kickback rate per coord (used in the tooltip)
+    const ratePct = leaders.map(t => {
+      const kb = t.kickbacks || 0;
+      return t.units > 0 ? (kb / t.units) * 100 : 0;
     });
     const ctx = document.getElementById('leadersChart');
     if (leadersChart) leadersChart.destroy();
     leadersChart = new Chart(ctx, {
       type: 'bar',
-      data: { labels, datasets: [{ label: 'Boards', data, backgroundColor: colors, borderColor: 'transparent', borderWidth: 0, borderRadius: 4 }] },
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Passed',
+            data: passedData,
+            backgroundColor: COLORS.green,
+            borderColor: 'transparent',
+            borderWidth: 0,
+            borderRadius: 4,
+            stack: 'boards'
+          },
+          {
+            label: 'Kickback',
+            data: kickbackData,
+            backgroundColor: COLORS.red,
+            borderColor: 'transparent',
+            borderWidth: 0,
+            borderRadius: 4,
+            stack: 'boards'
+          }
+        ]
+      },
       options: {
         indexAxis: 'y', responsive: true, maintainAspectRatio: false,
         plugins: {
           legend: { display: false },
-          tooltip: { backgroundColor: '#1A1A1D', borderColor: '#27272B', borderWidth: 1, titleColor: COLORS.text, bodyColor: COLORS.text2, padding: 10, callbacks: { label: c => c.parsed.x.toLocaleString() + ' boards' } }
+          tooltip: {
+            backgroundColor: '#1A1A1D', borderColor: '#27272B', borderWidth: 1,
+            titleColor: COLORS.text, bodyColor: COLORS.text2, padding: 10,
+            callbacks: {
+              label: function(c) {
+                const i = c.dataIndex;
+                if (c.dataset.label === 'Passed') {
+                  return 'Passed: ' + c.parsed.x.toLocaleString();
+                }
+                // Kickback row: include the percentage of total boards
+                return 'Kickback: ' + c.parsed.x.toLocaleString() + ' · ' + ratePct[i].toFixed(1) + '%';
+              }
+            }
+          }
         },
         scales: {
-          x: { min: 0, ticks: { font: { family: 'Inter', size: 11 }, color: COLORS.muted2 }, grid: { color: COLORS.grid, drawBorder: false } },
+          x: {
+            stacked: true,
+            min: 0,
+            ticks: { font: { family: 'Inter', size: 11 }, color: COLORS.muted2 },
+            grid: { color: COLORS.grid, drawBorder: false }
+          },
           y: {
+            stacked: true,
             ticks: { font: { family: 'Inter', size: 12 }, color: COLORS.text2, autoSkip: false },
             afterFit: function(scale) { scale.width = 140; },
             grid: { display: false }

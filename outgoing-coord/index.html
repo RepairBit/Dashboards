@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Outgoing Coordinators Dashboard</title>
+<title>Outgoing Boards Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -208,6 +208,10 @@
   .bph-cell.green { color: var(--green); font-weight: 600; }
   .bph-cell.orange { color: var(--orange); font-weight: 600; }
   .bph-cell.red { color: var(--red); font-weight: 600; }
+  .kb-cell.green   { color: var(--green); font-weight: 600; }
+  .kb-cell.orange  { color: var(--orange); font-weight: 600; }
+  .kb-cell.red     { color: var(--red); font-weight: 600; }
+  .kb-cell.muted   { color: var(--muted-2); }
   .state-msg { text-align: center; padding: 60px 20px; color: var(--muted-2); font-size: 14px; }
 
   /* === KICKBACK PANEL STYLES === */
@@ -241,7 +245,7 @@
   <div class="brand">
     <img src="../shared/wrench_transparent.png" alt="" class="brand-mark-logo" onerror="this.style.display='none'; this.insertAdjacentHTML('afterend', '<div class=\'brand-mark\'>R</div>');">
     <div>
-      <div class="brand-title">Outgoing Coordinators Dashboard</div>
+      <div class="brand-title">Outgoing Boards Dashboard</div>
     </div>
   </div>
   <div class="header-right">
@@ -631,6 +635,20 @@
     if (bph >= 4) return "orange";
     return "red";
   }
+  // Kickback rate color: lower is better (green <10%, orange 10-25%, red >25%).
+  // Same thresholds as the lab dashboard's tech-level kickback color so the
+  // visual language is consistent across dashboards.
+  function kbRateClass(rate, kickbacks) {
+    if (kickbacks === 0) return "green";
+    if (rate < 10) return "green";
+    if (rate <= 25) return "orange";
+    return "red";
+  }
+  function fmtRate(v) {
+    const n = Number(v);
+    if (Number.isInteger(n)) return n.toString();
+    return n.toFixed(1);
+  }
 
   function getActiveSlice() {
     if (!currentData) return null;
@@ -965,7 +983,8 @@
       { key: "primary", label: "Shift" },
       { key: "units", label: "Boards" },
       { key: "days", label: "Days Worked" },
-      { key: "bph", label: "BPH" }
+      { key: "bph", label: "BPH" },
+      { key: "kickbacks", label: "Kickbacks" }
     ];
 
     const headHTML = cols.map(c => {
@@ -977,12 +996,20 @@
     const bodyHTML = sorted.map(c => {
       const pillCls = c.primary.toLowerCase();
       const bCls = bphClass(c.bph);
+      // Kickback cell: muted "0" if none, else "<count> · <rate>%" colored by rate
+      const cKickbacks = c.kickbacks || 0;
+      const cKbRate = c.kickbackRate || 0;
+      const cKbCls = kbRateClass(cKbRate, cKickbacks);
+      const kbCellHtml = cKickbacks === 0
+        ? '<span class="kb-cell muted">0</span>'
+        : '<span class="kb-cell ' + cKbCls + '">' + cKickbacks + ' · ' + fmtRate(cKbRate) + '%</span>';
       return '<tr>' +
         '<td class="coord-name-cell">' + esc(c.name) + '</td>' +
         '<td><span class="shift-pill ' + pillCls + '">' + esc(c.primary) + '</span></td>' +
         '<td>' + c.units.toLocaleString() + '</td>' +
         '<td>' + c.days.toLocaleString() + '</td>' +
         '<td class="bph-cell ' + bCls + '">' + fmtBPH(c.bph) + '</td>' +
+        '<td>' + kbCellHtml + '</td>' +
       '</tr>';
     }).join("");
 

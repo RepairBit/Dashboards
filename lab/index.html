@@ -37,6 +37,8 @@
     --giveup-bg: rgba(246,139,32,0.1);
     --grave:     #f15d25;
     --grave-bg:  rgba(241,93,37,0.1);
+    --kickback:  #ef4444;
+    --kickback-bg: rgba(239,68,68,0.12);
 
     --grid:      rgba(255,255,255,0.04);
     --grid-strong: rgba(255,255,255,0.08);
@@ -191,10 +193,10 @@
     color: var(--muted-2);
   }
 
-  /* KPI strip */
+  /* KPI strip — now 6 cards */
   .kpi-strip {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     gap: 12px;
     margin-bottom: 16px;
   }
@@ -450,6 +452,9 @@
   .team-meta .bph.green  { color: var(--green); font-weight: 600; }
   .team-meta .bph.orange { color: var(--orange); font-weight: 600; }
   .team-meta .bph.red    { color: var(--red); font-weight: 600; }
+  .team-meta .kb.green  { color: var(--green); font-weight: 600; }
+  .team-meta .kb.orange { color: var(--orange); font-weight: 600; }
+  .team-meta .kb.red    { color: var(--red); font-weight: 600; }
   .team-meta .sep {
     color: var(--border-strong);
     margin: 0 8px;
@@ -543,6 +548,28 @@
     margin-top: 4px;
   }
 
+  /* Kickback line on tech card */
+  .tech-kickback {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+  }
+  .tech-kickback-label {
+    color: var(--muted-2);
+  }
+  .tech-kickback-val {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .tech-kickback-val.green  { color: var(--green); }
+  .tech-kickback-val.orange { color: var(--orange); }
+  .tech-kickback-val.red    { color: var(--red); }
+  .tech-kickback-val.muted  { color: var(--muted-2); }
+
   /* Overview table */
   .overview-table-wrap {
     background: var(--surface);
@@ -581,6 +608,10 @@
   .bph-cell.green  { color: var(--green); font-weight: 600; }
   .bph-cell.orange { color: var(--orange); font-weight: 600; }
   .bph-cell.red    { color: var(--red); font-weight: 600; }
+  .kb-cell.green   { color: var(--green); font-weight: 600; }
+  .kb-cell.orange  { color: var(--orange); font-weight: 600; }
+  .kb-cell.red     { color: var(--red); font-weight: 600; }
+  .kb-cell.muted   { color: var(--muted-2); }
 
   .state-msg {
     text-align: center;
@@ -643,6 +674,12 @@
     <div class="kpi-value" id="s-unique">—</div>
     <div class="kpi-progress-track"><div class="kpi-progress-fill" id="s-unique-bar" style="width: 0%; background: rgba(255,255,255,0.35);"></div></div>
     <div class="kpi-sub" id="s-unique-sub">—</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-head"><span class="kpi-label">Kickbacks</span></div>
+    <div class="kpi-value" id="s-kickbacks">—</div>
+    <div class="kpi-progress-track"><div class="kpi-progress-fill" id="s-kickback-bar" style="width: 0%;"></div></div>
+    <div class="kpi-sub" id="s-kickback-sub">—</div>
   </div>
   <div class="kpi-card">
     <div class="kpi-head"><span class="kpi-label">Outcomes</span></div>
@@ -788,8 +825,21 @@
     if (bph >= 0.5) return "orange";
     return "red";
   }
+  // Kickback rate: lower is better.
+  // green <10%, orange 10-25%, red >25%
+  function kbRateClass(rate, kickbacks) {
+    if (kickbacks === 0) return "green";
+    if (rate < 10) return "green";
+    if (rate <= 25) return "orange";
+    return "red";
+  }
   function classToColor(cls) { return COLORS[cls] || COLORS.text; }
   function fmtBPH(v) { return Number(v).toFixed(2); }
+  function fmtRate(v) {
+    const n = Number(v);
+    if (Number.isInteger(n)) return n.toString();
+    return n.toFixed(1);
+  }
 
   function renderTrendChart(trend) {
     const ctx = document.getElementById('trendChart');
@@ -940,6 +990,21 @@
     if (uniqueBar) uniqueBar.style.width = uniquePct + "%";
     document.getElementById("s-unique-sub").textContent = uniquePct + "% of total touches";
 
+    // Kickbacks
+    const kickbacks = lab.kickbacks || 0;
+    const kbRate = lab.kickbackRate || 0;
+    const kbCls = kbRateClass(kbRate, kickbacks);
+    const kbEl = document.getElementById("s-kickbacks");
+    kbEl.textContent = kickbacks.toLocaleString();
+    kbEl.className = "kpi-value " + kbCls;
+    const kbBar = document.getElementById("s-kickback-bar");
+    kbBar.style.width = Math.min(100, kbRate * 2) + "%";
+    kbBar.className = "kpi-progress-fill " + kbCls;
+    document.getElementById("s-kickback-sub").innerHTML =
+      kickbacks === 0
+        ? '<span style="color: var(--green); font-weight: 600;">None today</span>'
+        : '<span style="color: var(--' + kbCls + '); font-weight: 600;">' + fmtRate(kbRate) + '%</span> rate · vs ' + lab.repairs.toLocaleString() + ' repairs';
+
     // Outcomes
     document.getElementById("s-false").textContent = lab.falseAsics.toLocaleString();
     document.getElementById("s-giveups").textContent = lab.giveups.toLocaleString();
@@ -982,8 +1047,14 @@
     const overviewPanel = document.createElement("div");
     overviewPanel.className = "team-panel" + (currentTeam === 0 ? " active" : "");
     overviewPanel.id = "team-0";
-    const tableRows = currentData.teamSummaries.map(t =>
-      '<tr>' +
+    const tableRows = currentData.teamSummaries.map(t => {
+      const tKickbacks = t.kickbacks || 0;
+      const tKbRate = t.kickbackRate || 0;
+      const tKbCls = kbRateClass(tKbRate, tKickbacks);
+      const kbDisplay = tKickbacks === 0
+        ? '<span class="kb-cell muted">0</span>'
+        : '<span class="kb-cell ' + tKbCls + '">' + tKickbacks + ' · ' + fmtRate(tKbRate) + '%</span>';
+      return '<tr>' +
         '<td class="team-name-cell">' + esc(t.name) + '</td>' +
         '<td>' + t.techCount + '</td>' +
         '<td>' + t.touches.toLocaleString() + '</td>' +
@@ -991,15 +1062,16 @@
         '<td>' + t.falseAsics + '</td>' +
         '<td>' + t.giveups + '</td>' +
         '<td>' + t.graveyards + '</td>' +
+        '<td>' + kbDisplay + '</td>' +
         '<td class="pct-cell ' + pctClass(t.pct) + '">' + t.pct + '%</td>' +
         '<td class="bph-cell ' + bphClass(t.bph) + '">' + fmtBPH(t.bph) + '</td>' +
-      '</tr>'
-    ).join("");
+      '</tr>';
+    }).join("");
     overviewPanel.innerHTML =
       '<div class="overview-table-wrap">' +
       '<table class="teams-table"><thead><tr>' +
       '<th>Team</th><th>Techs</th><th>Touches</th><th>Repairs</th>' +
-      '<th>False ASICs</th><th>Give-Ups</th><th>Graveyards</th><th>Repair %</th><th>BPH</th>' +
+      '<th>False ASICs</th><th>Give-Ups</th><th>Graveyards</th><th>Kickbacks</th><th>Repair %</th><th>BPH</th>' +
       '</tr></thead><tbody>' + tableRows + '</tbody></table>' +
       '</div>';
     stage.appendChild(overviewPanel);
@@ -1014,6 +1086,21 @@
         if (s.level) subParts.push(esc(s.level));
         subParts.push(s.techDays + " day" + (s.techDays === 1 ? "" : "s"));
         const sub = subParts.join(" · ");
+
+        // Kickback line
+        const tcKickbacks = s.kickbacks || 0;
+        const tcKbRate = s.kickbackRate || 0;
+        const tcKbCls = kbRateClass(tcKbRate, tcKickbacks);
+        const kickbackLine = tcKickbacks === 0
+          ? '<div class="tech-kickback">' +
+              '<span class="tech-kickback-label">Kickbacks</span>' +
+              '<span class="tech-kickback-val muted">0</span>' +
+            '</div>'
+          : '<div class="tech-kickback">' +
+              '<span class="tech-kickback-label">Kickbacks</span>' +
+              '<span class="tech-kickback-val ' + tcKbCls + '">' + tcKickbacks + ' · ' + fmtRate(tcKbRate) + '%</span>' +
+            '</div>';
+
         return '<div class="tech-card">' +
           '<div class="tech-card-head">' +
             '<div>' +
@@ -1033,8 +1120,17 @@
             '<div><div class="tech-stat-num giveup">' + s.giveups + '</div><div class="tech-stat-label">Give-Ups</div></div>' +
             '<div><div class="tech-stat-num grave">' + s.graveyards + '</div><div class="tech-stat-label">Graveyards</div></div>' +
           '</div>' +
+          kickbackLine +
           '</div>';
       }).join("");
+
+      // Team header — add kickback rate alongside %/BPH
+      const tpKickbacks = panelData.kickbacks || 0;
+      const tpKbRate = panelData.kickbackRate || 0;
+      const tpKbCls = kbRateClass(tpKbRate, tpKickbacks);
+      const teamKbMeta = tpKickbacks === 0
+        ? '<span class="sep">|</span><span class="kb green">0 Kickbacks</span>'
+        : '<span class="sep">|</span><span class="kb ' + tpKbCls + '">' + tpKickbacks + ' Kickbacks · ' + fmtRate(tpKbRate) + '%</span>';
 
       const panel = document.createElement("div");
       panel.className = "team-panel" + (panelIdx === currentTeam ? " active" : "");
@@ -1050,6 +1146,7 @@
             '<span class="pct ' + pctClass(panelData.pct) + '">' + panelData.pct + '% Repair</span>' +
             '<span class="sep">|</span>' +
             '<span class="bph ' + bphClass(panelData.bph) + '">' + fmtBPH(panelData.bph) + ' BPH</span>' +
+            teamKbMeta +
           '</div>' +
         '</div>' +
         '<div class="tech-grid">' + cardsHTML + '</div>';

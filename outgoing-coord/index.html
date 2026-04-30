@@ -983,8 +983,8 @@
       { key: "primary", label: "Shift" },
       { key: "units", label: "Boards" },
       { key: "days", label: "Days Worked" },
-      { key: "bph", label: "BPH" },
-      { key: "kickbacks", label: "Kickbacks" }
+      { key: "kickbacks", label: "Kickbacks" },
+      { key: "bph", label: "BPH" }
     ];
 
     const headHTML = cols.map(c => {
@@ -1008,8 +1008,8 @@
         '<td><span class="shift-pill ' + pillCls + '">' + esc(c.primary) + '</span></td>' +
         '<td>' + c.units.toLocaleString() + '</td>' +
         '<td>' + c.days.toLocaleString() + '</td>' +
-        '<td class="bph-cell ' + bCls + '">' + fmtBPH(c.bph) + '</td>' +
         '<td>' + kbCellHtml + '</td>' +
+        '<td class="bph-cell ' + bCls + '">' + fmtBPH(c.bph) + '</td>' +
       '</tr>';
     }).join("");
 

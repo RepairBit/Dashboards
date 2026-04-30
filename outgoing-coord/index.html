@@ -542,19 +542,35 @@
   }
 
   function renderErrorsChart(errorTypes) {
-    // Color by error category
+    // Color by error category — keys are lowercased so casing variations
+    // (e.g. "ASIC Error" vs "Asic Error") all hit the same color.
     const errorColors = {
-      'ASIC Error':   COLORS.red,
-      'False ASIC':   '#3b82f6',
-      'TS':           COLORS.orange,
-      'Graveyard':    '#f15d25',
-      'Give Up':      '#f68b20',
-      'Repaired':     COLORS.green,
-      'Unknown':      COLORS.muted
+      'asic error':   COLORS.red,
+      'false asic':   '#3b82f6',  // blue
+      'ts':           COLORS.orange,
+      'graveyard':    '#f15d25',  // dark orange
+      'give up':      '#f68b20',  // amber-orange
+      'repaired':     COLORS.green,
+      'visual':       '#06b6d4',  // cyan
+      'corrosion':    '#14b8a6',  // teal
+      'unknown':      COLORS.muted
     };
+    // Fallback palette for any error type not in the map above —
+    // each unknown type gets a different color (not all purple).
+    const fallbackPalette = [
+      COLORS.purple, '#ec4899', '#a855f7', '#10b981',
+      '#f59e0b', '#84cc16', '#0ea5e9', '#d946ef'
+    ];
     const labels = errorTypes.map(e => e.name);
     const data = errorTypes.map(e => e.count);
-    const colors = errorTypes.map(e => errorColors[e.name] || COLORS.purple);
+    let unknownIdx = 0;
+    const colors = errorTypes.map(e => {
+      const key = (e.name || '').toLowerCase().trim();
+      if (errorColors[key]) return errorColors[key];
+      const c = fallbackPalette[unknownIdx % fallbackPalette.length];
+      unknownIdx++;
+      return c;
+    });
 
     const ctx = document.getElementById('errorsChart');
     if (errorsChart) errorsChart.destroy();

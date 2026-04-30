@@ -62,6 +62,90 @@
   .filter-btn:hover { color: var(--text-2); }
   .filter-btn.active { background: var(--border); color: var(--text); }
   .last-updated { font-size: 12px; color: var(--muted-2); }
+
+  /* === Custom date range panel === */
+  .custom-row {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    margin: -8px 0 22px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    flex-wrap: wrap;
+  }
+  .custom-row.open { display: flex; }
+  .custom-label {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+    margin-right: 4px;
+  }
+  .custom-row input[type="date"] {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 10px;
+    font-family: inherit;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color-scheme: dark;
+    cursor: pointer;
+  }
+  .custom-row input[type="date"]:hover { border-color: var(--border-strong); }
+  .custom-row input[type="date"]:focus {
+    outline: none;
+    border-color: var(--brand);
+  }
+  .custom-row .arrow {
+    color: var(--muted-2);
+    font-size: 12px;
+  }
+  .custom-row button.apply {
+    padding: 7px 16px;
+    background: var(--brand);
+    border: 1px solid var(--brand);
+    border-radius: 6px;
+    color: var(--bg);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.15s;
+  }
+  .custom-row button.apply:hover { filter: brightness(1.1); }
+  .custom-row button.apply:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .custom-row .quick-pick {
+    display: inline-flex;
+    gap: 4px;
+    margin-left: 8px;
+  }
+  .custom-row .quick-pick button {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--muted);
+    padding: 5px 10px;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .custom-row .quick-pick button:hover {
+    color: var(--text-2);
+    border-color: var(--border-strong);
+  }
+  .custom-error {
+    color: var(--red);
+    font-size: 11px;
+    margin-left: auto;
+  }
+
   .shift-group { display: flex; align-items: center; gap: 8px; }
   .shift-bar { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 3px; gap: 2px; }
   .shift-btn { background: transparent; border: none; color: var(--muted); padding: 6px 14px; font-size: 12px; font-family: inherit; border-radius: 5px; cursor: pointer; transition: all 0.15s; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
@@ -152,6 +236,7 @@
     <button class="filter-btn" data-range="quarter" onclick="setRange('quarter')">Quarter</button>
     <button class="filter-btn" data-range="ytd" onclick="setRange('ytd')">YTD</button>
     <button class="filter-btn" data-range="all" onclick="setRange('all')">All Time</button>
+    <button class="filter-btn" data-range="custom" onclick="toggleCustomPanel()">Custom</button>
   </div>
 
   <div class="shift-group">
@@ -162,6 +247,22 @@
     </div>
     <span class="last-updated" id="lastUpdated">Connecting...</span>
   </div>
+</div>
+
+<div class="custom-row" id="customRow">
+  <span class="custom-label">From</span>
+  <input type="date" id="customFrom">
+  <span class="arrow">→</span>
+  <span class="custom-label">To</span>
+  <input type="date" id="customTo">
+  <button class="apply" id="customApply" onclick="applyCustomRange()">Apply</button>
+  <span class="quick-pick">
+    <button onclick="customQuickPick('yesterday')">Yesterday</button>
+    <button onclick="customQuickPick('last7')">Last 7 days</button>
+    <button onclick="customQuickPick('last30')">Last 30 days</button>
+    <button onclick="customQuickPick('lastmonth')">Last month</button>
+  </span>
+  <span class="custom-error" id="customError"></span>
 </div>
 
 <div class="kpi-strip">
@@ -280,6 +381,9 @@
 
   let currentData = null;
   let currentRange = "today", currentShift = "all";
+  // Custom date range state. When currentRange === 'custom', these hold the
+  // YYYY-MM-DD strings being applied; otherwise they're null.
+  let customFrom = null, customTo = null;
   let trendChart = null, leadersChart = null, modelsChart = null, errorsChart = null, hourlyChart = null;
   let sortKey = "units", sortDir = "desc";
   let browseMode = false, refreshTimer = null;
@@ -299,9 +403,12 @@
   tickClock();
 
   function setRange(range) {
-    if (range === currentRange) return;
+    if (range === currentRange && range !== 'custom') return;
     currentRange = range;
+    customFrom = null;
+    customTo = null;
     document.querySelectorAll(".filter-btn").forEach(b => b.classList.toggle("active", b.dataset.range === range));
+    closeCustomPanel();
     document.getElementById("lastUpdated").textContent = "Loading " + range + "...";
     fetchData();
   }
@@ -311,6 +418,103 @@
     currentShift = shift;
     document.querySelectorAll(".shift-btn").forEach(b => b.classList.toggle("active", b.dataset.shift === shift));
     renderAll();
+  }
+
+  function toggleCustomPanel() {
+    const panel = document.getElementById("customRow");
+    if (panel.classList.contains("open")) {
+      closeCustomPanel();
+      if (currentRange !== 'custom') {
+        document.querySelectorAll(".filter-btn").forEach(b => {
+          b.classList.toggle("active", b.dataset.range === currentRange);
+        });
+      }
+    } else {
+      openCustomPanel();
+    }
+  }
+
+  function openCustomPanel() {
+    const panel = document.getElementById("customRow");
+    panel.classList.add("open");
+    document.querySelectorAll(".filter-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.range === 'custom');
+    });
+    const fromEl = document.getElementById("customFrom");
+    const toEl = document.getElementById("customTo");
+    if (customFrom && customTo) {
+      fromEl.value = customFrom;
+      toEl.value = customTo;
+    } else {
+      const today = new Date();
+      const weekAgo = new Date();
+      weekAgo.setDate(today.getDate() - 6);
+      if (!fromEl.value) fromEl.value = ymd(weekAgo);
+      if (!toEl.value) toEl.value = ymd(today);
+    }
+    document.getElementById("customError").textContent = "";
+  }
+
+  function closeCustomPanel() {
+    document.getElementById("customRow").classList.remove("open");
+    document.getElementById("customError").textContent = "";
+  }
+
+  function ymd(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+
+  function applyCustomRange() {
+    const fromEl = document.getElementById("customFrom");
+    const toEl = document.getElementById("customTo");
+    const errEl = document.getElementById("customError");
+    const f = fromEl.value;
+    const t = toEl.value;
+    if (!f || !t) { errEl.textContent = "Pick both From and To dates."; return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || !/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+      errEl.textContent = "Invalid date format."; return;
+    }
+    if (f > t) { errEl.textContent = "From date must be on or before To date."; return; }
+    errEl.textContent = "";
+    customFrom = f;
+    customTo = t;
+    currentRange = 'custom';
+    document.querySelectorAll(".filter-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.range === 'custom');
+    });
+    document.getElementById("lastUpdated").textContent = "Loading " + f + " → " + t + "...";
+    fetchData();
+  }
+
+  function customQuickPick(which) {
+    const today = new Date();
+    let from, to;
+    switch (which) {
+      case 'yesterday': {
+        const y = new Date(); y.setDate(today.getDate() - 1);
+        from = ymd(y); to = ymd(y); break;
+      }
+      case 'last7': {
+        const start = new Date(); start.setDate(today.getDate() - 6);
+        from = ymd(start); to = ymd(today); break;
+      }
+      case 'last30': {
+        const start = new Date(); start.setDate(today.getDate() - 29);
+        from = ymd(start); to = ymd(today); break;
+      }
+      case 'lastmonth': {
+        const lmEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+        const lmStart = new Date(lmEnd.getFullYear(), lmEnd.getMonth(), 1);
+        from = ymd(lmStart); to = ymd(lmEnd); break;
+      }
+      default: return;
+    }
+    document.getElementById("customFrom").value = from;
+    document.getElementById("customTo").value = to;
+    applyCustomRange();
   }
 
   function toggleMode() {
@@ -328,15 +532,28 @@
     }
   }
 
+  function buildFetchUrl() {
+    const cacheBust = "&t=" + Date.now();
+    if (currentRange === 'custom' && customFrom && customTo) {
+      return WORKER_URL + "?type=coordinator" +
+        "&from=" + encodeURIComponent(customFrom) +
+        "&to=" + encodeURIComponent(customTo) +
+        cacheBust;
+    }
+    return WORKER_URL + "?type=coordinator&range=" + encodeURIComponent(currentRange) + cacheBust;
+  }
+
   async function fetchData() {
     try {
-      const res = await fetch(WORKER_URL + "?type=coordinator&range=" + encodeURIComponent(currentRange) + "&t=" + Date.now());
+      const res = await fetch(buildFetchUrl());
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       currentData = json;
       renderAll();
-      document.getElementById("lastUpdated").textContent =
-        "Updated " + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      const updateLabel = (currentRange === 'custom' && customFrom && customTo)
+        ? "Showing " + customFrom + " → " + customTo
+        : "Updated " + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      document.getElementById("lastUpdated").textContent = updateLabel;
     } catch (e) {
       document.getElementById("lastUpdated").textContent = "Connection error — retrying";
     }
@@ -477,19 +694,35 @@
   }
 
   function renderErrorsChart(errorTypes) {
-    // Color by error category
+    // Color by error category — keys are lowercased so casing variations
+    // (e.g. "ASIC Error" vs "Asic Error") all hit the same color.
     const errorColors = {
-      'ASIC Error':   COLORS.red,
-      'False ASIC':   '#3b82f6',
-      'TS':           COLORS.orange,
-      'Graveyard':    '#f15d25',
-      'Give Up':      '#f68b20',
-      'Repaired':     COLORS.green,
-      'Unknown':      COLORS.muted
+      'asic error':   COLORS.red,
+      'false asic':   '#3b82f6',  // blue
+      'ts':           COLORS.orange,
+      'graveyard':    '#f15d25',  // dark orange
+      'give up':      '#f68b20',  // amber-orange
+      'repaired':     COLORS.green,
+      'visual':       '#06b6d4',  // cyan
+      'corrosion':    '#14b8a6',  // teal
+      'unknown':      COLORS.muted
     };
+    // Fallback palette for any error type not in the map above —
+    // each unknown type gets a different color (not all purple).
+    const fallbackPalette = [
+      COLORS.purple, '#ec4899', '#a855f7', '#10b981',
+      '#f59e0b', '#84cc16', '#0ea5e9', '#d946ef'
+    ];
     const labels = errorTypes.map(e => e.name);
     const data = errorTypes.map(e => e.count);
-    const colors = errorTypes.map(e => errorColors[e.name] || COLORS.purple);
+    let unknownIdx = 0;
+    const colors = errorTypes.map(e => {
+      const key = (e.name || '').toLowerCase().trim();
+      if (errorColors[key]) return errorColors[key];
+      const c = fallbackPalette[unknownIdx % fallbackPalette.length];
+      unknownIdx++;
+      return c;
+    });
 
     const ctx = document.getElementById('errorsChart');
     if (errorsChart) errorsChart.destroy();
@@ -691,7 +924,11 @@
       today: 'Last 14 days', week: 'Last 14 days', month: 'Last 14 days',
       quarter: 'Last 13 weeks', ytd: 'Last 12 months', all: 'Last 12 months'
     };
-    if (trendMeta) trendMeta.textContent = trendLabels[currentRange] || 'Trend';
+    if (trendMeta) {
+      trendMeta.textContent = currentRange === 'custom'
+        ? (customFrom + ' → ' + customTo)
+        : (trendLabels[currentRange] || 'Trend');
+    }
 
     // Hourly meta
     const hourlyMeta = document.getElementById("hourly-meta");

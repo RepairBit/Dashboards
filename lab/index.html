@@ -193,6 +193,89 @@
     color: var(--muted-2);
   }
 
+  /* === Custom date range panel === */
+  .custom-row {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    margin: -8px 0 22px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    flex-wrap: wrap;
+  }
+  .custom-row.open { display: flex; }
+  .custom-label {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+    margin-right: 4px;
+  }
+  .custom-row input[type="date"] {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 10px;
+    font-family: inherit;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color-scheme: dark;
+    cursor: pointer;
+  }
+  .custom-row input[type="date"]:hover { border-color: var(--border-strong); }
+  .custom-row input[type="date"]:focus {
+    outline: none;
+    border-color: var(--brand);
+  }
+  .custom-row .arrow {
+    color: var(--muted-2);
+    font-size: 12px;
+  }
+  .custom-row button.apply {
+    padding: 7px 16px;
+    background: var(--brand);
+    border: 1px solid var(--brand);
+    border-radius: 6px;
+    color: var(--bg);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.15s;
+  }
+  .custom-row button.apply:hover { filter: brightness(1.1); }
+  .custom-row button.apply:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .custom-row .quick-pick {
+    display: inline-flex;
+    gap: 4px;
+    margin-left: 8px;
+  }
+  .custom-row .quick-pick button {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--muted);
+    padding: 5px 10px;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .custom-row .quick-pick button:hover {
+    color: var(--text-2);
+    border-color: var(--border-strong);
+  }
+  .custom-error {
+    color: var(--red);
+    font-size: 11px;
+    margin-left: auto;
+  }
+
   /* KPI strip — now 6 cards */
   .kpi-strip {
     display: grid;
@@ -667,8 +750,25 @@
     <button class="filter-btn" data-range="quarter" onclick="setRange('quarter')">Quarter</button>
     <button class="filter-btn" data-range="ytd" onclick="setRange('ytd')">YTD</button>
     <button class="filter-btn" data-range="all" onclick="setRange('all')">All Time</button>
+    <button class="filter-btn" data-range="custom" onclick="toggleCustomPanel()">Custom</button>
   </div>
   <span class="last-updated" id="lastUpdated">Connecting...</span>
+</div>
+
+<div class="custom-row" id="customRow">
+  <span class="custom-label">From</span>
+  <input type="date" id="customFrom">
+  <span class="arrow">→</span>
+  <span class="custom-label">To</span>
+  <input type="date" id="customTo">
+  <button class="apply" id="customApply" onclick="applyCustomRange()">Apply</button>
+  <span class="quick-pick">
+    <button onclick="customQuickPick('yesterday')">Yesterday</button>
+    <button onclick="customQuickPick('last7')">Last 7 days</button>
+    <button onclick="customQuickPick('last30')">Last 30 days</button>
+    <button onclick="customQuickPick('lastmonth')">Last month</button>
+  </span>
+  <span class="custom-error" id="customError"></span>
 </div>
 
 <div class="kpi-strip">
@@ -775,7 +875,11 @@
   let currentData = null;
   let teams = [], currentTeam = 0;
   let rotateTimer = null, progTimer = null, progStart = null;
-  let browseMode = false, currentRange = "today";
+  let browseMode = false;
+  // Range state. When currentRange === 'custom', customFrom and customTo
+  // hold the YYYY-MM-DD strings being applied; otherwise they're null.
+  let currentRange = "today";
+  let customFrom = null, customTo = null;
   let trendChart = null, teamsChart = null, scatterChart = null;
   // All-Techs table sort state
   let allTechsSortKey = "repairs", allTechsSortDir = "desc";
@@ -794,16 +898,140 @@
   setInterval(tickClock, 1000);
   tickClock();
 
+  // ============ Range / Custom panel ============
+
   function setRange(range) {
-    if (range === currentRange) return;
+    if (range === currentRange && range !== 'custom') return;
     currentRange = range;
+    customFrom = null;
+    customTo = null;
     document.querySelectorAll(".filter-btn").forEach(b => {
       b.classList.toggle("active", b.dataset.range === range);
     });
+    closeCustomPanel();
     currentTeam = 0;
     document.getElementById("lastUpdated").textContent = "Loading " + range + "...";
     fetchData();
   }
+
+  function toggleCustomPanel() {
+    const panel = document.getElementById("customRow");
+    if (panel.classList.contains("open")) {
+      closeCustomPanel();
+      // If we're not currently on a custom range, restore the active preset highlight
+      if (currentRange !== 'custom') {
+        document.querySelectorAll(".filter-btn").forEach(b => {
+          b.classList.toggle("active", b.dataset.range === currentRange);
+        });
+      }
+    } else {
+      openCustomPanel();
+    }
+  }
+
+  function openCustomPanel() {
+    const panel = document.getElementById("customRow");
+    panel.classList.add("open");
+    // Highlight the Custom button
+    document.querySelectorAll(".filter-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.range === 'custom');
+    });
+    // Pre-fill the date inputs sensibly: if a custom range is active, show those
+    // dates. Otherwise default From=last week, To=today so a quick Apply works.
+    const fromEl = document.getElementById("customFrom");
+    const toEl = document.getElementById("customTo");
+    if (customFrom && customTo) {
+      fromEl.value = customFrom;
+      toEl.value = customTo;
+    } else {
+      const today = new Date();
+      const weekAgo = new Date();
+      weekAgo.setDate(today.getDate() - 6);
+      if (!fromEl.value) fromEl.value = ymd(weekAgo);
+      if (!toEl.value) toEl.value = ymd(today);
+    }
+    document.getElementById("customError").textContent = "";
+  }
+
+  function closeCustomPanel() {
+    document.getElementById("customRow").classList.remove("open");
+    document.getElementById("customError").textContent = "";
+  }
+
+  // YYYY-MM-DD string for a Date, in local timezone
+  function ymd(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+
+  function applyCustomRange() {
+    const fromEl = document.getElementById("customFrom");
+    const toEl = document.getElementById("customTo");
+    const errEl = document.getElementById("customError");
+    const f = fromEl.value;
+    const t = toEl.value;
+    if (!f || !t) {
+      errEl.textContent = "Pick both From and To dates.";
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || !/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+      errEl.textContent = "Invalid date format.";
+      return;
+    }
+    if (f > t) {
+      errEl.textContent = "From date must be on or before To date.";
+      return;
+    }
+    errEl.textContent = "";
+    customFrom = f;
+    customTo = t;
+    currentRange = 'custom';
+    currentTeam = 0;
+    // Keep Custom button highlighted
+    document.querySelectorAll(".filter-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.range === 'custom');
+    });
+    // Don't close the panel — user may want to tweak. They can click another
+    // preset to dismiss it.
+    document.getElementById("lastUpdated").textContent = "Loading " + f + " → " + t + "...";
+    fetchData();
+  }
+
+  function customQuickPick(which) {
+    const today = new Date();
+    let from, to;
+    switch (which) {
+      case 'yesterday': {
+        const y = new Date(); y.setDate(today.getDate() - 1);
+        from = ymd(y); to = ymd(y);
+        break;
+      }
+      case 'last7': {
+        const start = new Date(); start.setDate(today.getDate() - 6);
+        from = ymd(start); to = ymd(today);
+        break;
+      }
+      case 'last30': {
+        const start = new Date(); start.setDate(today.getDate() - 29);
+        from = ymd(start); to = ymd(today);
+        break;
+      }
+      case 'lastmonth': {
+        const lmEnd = new Date(today.getFullYear(), today.getMonth(), 0); // last day of prior month
+        const lmStart = new Date(lmEnd.getFullYear(), lmEnd.getMonth(), 1);
+        from = ymd(lmStart); to = ymd(lmEnd);
+        break;
+      }
+      default: return;
+    }
+    document.getElementById("customFrom").value = from;
+    document.getElementById("customTo").value = to;
+    applyCustomRange();
+  }
+
+  // ============ Mode toggle ============
 
   function toggleMode() {
     browseMode = !browseMode;
@@ -824,19 +1052,36 @@
     }
   }
 
+  // ============ Data fetch ============
+
+  function buildFetchUrl() {
+    const cacheBust = "&t=" + Date.now();
+    if (currentRange === 'custom' && customFrom && customTo) {
+      return WORKER_URL +
+        "?from=" + encodeURIComponent(customFrom) +
+        "&to=" + encodeURIComponent(customTo) +
+        cacheBust;
+    }
+    return WORKER_URL + "?range=" + encodeURIComponent(currentRange) + cacheBust;
+  }
+
   async function fetchData() {
     try {
-      const res = await fetch(WORKER_URL + "?range=" + encodeURIComponent(currentRange) + "&t=" + Date.now());
+      const res = await fetch(buildFetchUrl());
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       currentData = json;
       renderAll();
-      document.getElementById("lastUpdated").textContent =
-        "Updated " + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      const updateLabel = (currentRange === 'custom' && customFrom && customTo)
+        ? "Showing " + customFrom + " → " + customTo
+        : "Updated " + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      document.getElementById("lastUpdated").textContent = updateLabel;
     } catch (e) {
       document.getElementById("lastUpdated").textContent = "Connection error — retrying";
     }
   }
+
+  // ============ Render helpers ============
 
   function pctClass(pct) {
     if (pct >= 60) return "green";

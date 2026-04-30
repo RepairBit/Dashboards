@@ -588,6 +588,18 @@
     background: var(--surface-2);
   }
   .teams-table th:not(:first-child) { text-align: center; }
+  .teams-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s;
+  }
+  .teams-table th.sortable:hover { color: var(--text-2); }
+  .teams-table th.sortable.sorted { color: var(--text); }
+  .sort-arrow {
+    margin-left: 4px;
+    font-size: 10px;
+    opacity: 0.7;
+  }
   .teams-table td {
     padding: 14px 18px;
     border-bottom: 1px solid var(--border);
@@ -601,6 +613,15 @@
   .team-name-cell {
     font-weight: 600;
     color: var(--text) !important;
+  }
+  .tech-title-cell {
+    font-size: 12px;
+    color: var(--muted) !important;
+  }
+  .tech-title-cell.terminated {
+    color: var(--red) !important;
+    text-decoration: line-through;
+    font-weight: 600;
   }
   .pct-cell.green  { color: var(--green); font-weight: 600; }
   .pct-cell.orange { color: var(--orange); font-weight: 600; }
@@ -756,6 +777,8 @@
   let rotateTimer = null, progTimer = null, progStart = null;
   let browseMode = false, currentRange = "today";
   let trendChart = null, teamsChart = null, scatterChart = null;
+  // All-Techs table sort state
+  let allTechsSortKey = "repairs", allTechsSortDir = "desc";
 
   const COLORS = {
     text: '#FAFAFB', text2: '#ECECEE', muted: '#9A9AA1', muted2: '#6E6E76',
@@ -955,6 +978,103 @@
     });
   }
 
+  function renderAllTechsPanel() {
+    if (!currentData || !currentData.teamPanels) return '';
+    // Flatten all techs across all teams, attach team name to each row
+    const allTechs = [];
+    currentData.teamPanels.forEach(panel => {
+      const isTerminatedTeam = (panel.name || '').toLowerCase().trim() === 'terminated';
+      panel.techs.forEach(t => {
+        // For techs on the Terminated team, override title to "Terminated"
+        // (their original level like "Team Lead" is irrelevant once they're gone)
+        const title = isTerminatedTeam ? 'Terminated' : (t.level || '');
+        allTechs.push({
+          name: t.name,
+          title: title,
+          team: panel.name,
+          touches: t.touches,
+          repairs: t.repairs,
+          falseAsics: t.falseAsics,
+          giveups: t.giveups,
+          graveyards: t.graveyards,
+          kickbacks: t.kickbacks || 0,
+          kickbackRate: t.kickbackRate || 0,
+          pct: t.pct,
+          bph: t.bph,
+          terminated: isTerminatedTeam,
+        });
+      });
+    });
+
+    // Sort
+    const sorted = [...allTechs].sort((a, b) => {
+      const av = a[allTechsSortKey], bv = b[allTechsSortKey];
+      let cmp;
+      if (typeof av === "string") cmp = av.localeCompare(bv);
+      else cmp = av - bv;
+      return allTechsSortDir === "desc" ? -cmp : cmp;
+    });
+
+    const arrow = allTechsSortDir === "desc" ? "▼" : "▲";
+    const cols = [
+      { key: "name",       label: "Name" },
+      { key: "title",      label: "Title" },
+      { key: "touches",    label: "Touches" },
+      { key: "repairs",    label: "Repairs" },
+      { key: "falseAsics", label: "False ASICs" },
+      { key: "giveups",    label: "Give-Ups" },
+      { key: "graveyards", label: "Graveyards" },
+      { key: "kickbacks",  label: "Kickbacks" },
+      { key: "pct",        label: "Repair %" },
+      { key: "bph",        label: "BPH" },
+    ];
+    const headHTML = cols.map(c => {
+      const isSorted = c.key === allTechsSortKey;
+      const cls = "sortable" + (isSorted ? " sorted" : "");
+      const ar = isSorted ? '<span class="sort-arrow">' + arrow + '</span>' : '';
+      return '<th class="' + cls + '" onclick="sortAllTechs(\'' + c.key + '\')">' + c.label + ar + '</th>';
+    }).join("");
+
+    const bodyHTML = sorted.map(t => {
+      const tKickbacks = t.kickbacks;
+      const tKbRate = t.kickbackRate;
+      const tKbCls = kbRateClass(tKbRate, tKickbacks);
+      const kbDisplay = tKickbacks === 0
+        ? '<span class="kb-cell muted">0</span>'
+        : '<span class="kb-cell ' + tKbCls + '">' + tKickbacks + ' · ' + fmtRate(tKbRate) + '%</span>';
+      return '<tr>' +
+        '<td class="team-name-cell">' + esc(t.name) + '</td>' +
+        '<td class="tech-title-cell' + (t.terminated ? ' terminated' : '') + '">' + esc(t.title || '—') + '</td>' +
+        '<td>' + t.touches.toLocaleString() + '</td>' +
+        '<td>' + t.repairs.toLocaleString() + '</td>' +
+        '<td>' + t.falseAsics + '</td>' +
+        '<td>' + t.giveups + '</td>' +
+        '<td>' + t.graveyards + '</td>' +
+        '<td>' + kbDisplay + '</td>' +
+        '<td class="pct-cell ' + pctClass(t.pct) + '">' + t.pct + '%</td>' +
+        '<td class="bph-cell ' + bphClass(t.bph) + '">' + fmtBPH(t.bph) + '</td>' +
+      '</tr>';
+    }).join("");
+
+    return '<div class="overview-table-wrap">' +
+      '<table class="teams-table"><thead><tr>' + headHTML + '</tr></thead>' +
+      '<tbody>' + bodyHTML + '</tbody></table>' +
+      '</div>';
+  }
+
+  function sortAllTechs(key) {
+    if (allTechsSortKey === key) {
+      allTechsSortDir = allTechsSortDir === "desc" ? "asc" : "desc";
+    } else {
+      allTechsSortKey = key;
+      // For string columns default to asc, for numeric default to desc
+      allTechsSortDir = (key === "name" || key === "title") ? "asc" : "desc";
+    }
+    // Re-render only the All Techs panel without re-fetching
+    const panel = document.getElementById("team-1");
+    if (panel) panel.innerHTML = renderAllTechsPanel();
+  }
+
   function renderAll() {
     if (!currentData) return;
     const lab = currentData.summary;
@@ -1029,12 +1149,13 @@
     renderTeamsChart(currentData.teamSummaries);
     renderScatterChart(currentData.techScatter);
 
-    // Team strip
+    // Team strip — Overview (0), All Techs (1), then teams (2+)
     teams = currentData.teamPanels.map(t => t.name);
     const stripEl = document.getElementById("teamStrip");
     let stripHTML = '<button class="team-pill' + (currentTeam === 0 ? " active" : "") + '" onclick="goToTeam(0)">Overview</button>';
+    stripHTML += '<button class="team-pill' + (currentTeam === 1 ? " active" : "") + '" onclick="goToTeam(1)">All Techs</button>';
     teams.forEach((t, i) => {
-      const idx = i + 1;
+      const idx = i + 2; // teams start at index 2 now
       stripHTML += '<button class="team-pill' + (idx === currentTeam ? " active" : "") + '" onclick="goToTeam(' + idx + ')">' + esc(t) + '</button>';
     });
     stripEl.innerHTML = stripHTML;
@@ -1043,7 +1164,7 @@
     const stage = document.getElementById("teamStage");
     stage.innerHTML = "";
 
-    // Overview panel
+    // Overview panel (index 0)
     const overviewPanel = document.createElement("div");
     overviewPanel.className = "team-panel" + (currentTeam === 0 ? " active" : "");
     overviewPanel.id = "team-0";
@@ -1076,9 +1197,16 @@
       '</div>';
     stage.appendChild(overviewPanel);
 
-    // Per-team panels
+    // All Techs panel (index 1) — flatten every tech across teams into one sortable table
+    const allTechsPanel = document.createElement("div");
+    allTechsPanel.className = "team-panel" + (currentTeam === 1 ? " active" : "");
+    allTechsPanel.id = "team-1";
+    allTechsPanel.innerHTML = renderAllTechsPanel();
+    stage.appendChild(allTechsPanel);
+
+    // Per-team panels (indices 2+)
     currentData.teamPanels.forEach((panelData, idx) => {
-      const panelIdx = idx + 1;
+      const panelIdx = idx + 2; // shifted by 2 (Overview + All Techs occupy 0 and 1)
       const cardsHTML = panelData.techs.map(s => {
         const pCls = pctClass(s.pct);
         const bCls = bphClass(s.bph);
@@ -1157,7 +1285,8 @@
   }
 
   function goToTeam(idx) {
-    const totalPages = teams.length + 1;
+    // Total panels = Overview + All Techs + per-team count
+    const totalPages = teams.length + 2;
     document.querySelectorAll(".team-panel").forEach(p => p.classList.remove("active"));
     document.querySelectorAll(".team-pill").forEach(d => d.classList.remove("active"));
     currentTeam = ((idx % totalPages) + totalPages) % totalPages;

@@ -19,6 +19,10 @@
     --muted: #9A9AA1;
     --muted-2: #6E6E76;
     --brand: #E07A1A;
+    --status-green: #22C55E;
+    --status-yellow: #EAB308;
+    --status-red: #EF4444;
+    --status-gray: #6E6E76;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
@@ -120,6 +124,68 @@
   .card.coming-soon .card-arrow {
     color: var(--muted-2);
   }
+  /* Status dot — sits in the top-right corner of each card */
+  .status-dot {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--status-gray);
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+    transition: all 0.3s;
+  }
+  .status-dot.green {
+    background: var(--status-green);
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+  }
+  .status-dot.yellow {
+    background: var(--status-yellow);
+    box-shadow: 0 0 8px rgba(234, 179, 8, 0.5);
+  }
+  .status-dot.red {
+    background: var(--status-red);
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  /* Tooltip showing detail on hover/focus */
+  .status-wrap {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    padding: 4px;
+    cursor: help;
+  }
+  .status-tooltip {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    color: var(--text-2);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+    z-index: 10;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+  .status-tooltip strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .status-wrap:hover .status-tooltip,
+  .status-wrap:focus-within .status-tooltip {
+    opacity: 1;
+  }
   .footer {
     margin-top: 64px;
     padding-top: 24px;
@@ -139,7 +205,11 @@
   <p class="lede">Live performance and operations dashboards for the RepairBit team.</p>
 
   <div class="grid">
-     <a class="card" href="lab/">
+    <a class="card" href="lab/">
+      <span class="status-wrap" data-status="lab" tabindex="0" onclick="event.preventDefault(); event.stopPropagation();">
+        <span class="status-dot" id="status-lab"></span>
+        <span class="status-tooltip" id="tooltip-lab">Loading…</span>
+      </span>
       <div class="card-eyebrow">Lab</div>
       <div class="card-title">Lab Performance</div>
       <div class="card-desc">Real-time technician and team performance, repair rates, and outcome breakdowns across the lab.</div>
@@ -147,6 +217,10 @@
     </a>
 
     <a class="card" href="incoming-coord/">
+      <span class="status-wrap" data-status="coordinator" tabindex="0" onclick="event.preventDefault(); event.stopPropagation();">
+        <span class="status-dot" id="status-coordinator"></span>
+        <span class="status-tooltip" id="tooltip-coordinator">Loading…</span>
+      </span>
       <div class="card-eyebrow">Coordinator</div>
       <div class="card-title">Incoming Performance</div>
       <div class="card-desc">Live incoming-board metrics by coordinator and shift, with day/night performance comparisons.</div>
@@ -154,6 +228,10 @@
     </a>
 
     <a class="card" href="outgoing-coord/">
+      <span class="status-wrap" data-status="outgoing" tabindex="0" onclick="event.preventDefault(); event.stopPropagation();">
+        <span class="status-dot" id="status-outgoing"></span>
+        <span class="status-tooltip" id="tooltip-outgoing">Loading…</span>
+      </span>
       <div class="card-eyebrow">Coordinator</div>
       <div class="card-title">Outgoing Performance</div>
       <div class="card-desc">Live outgoing-board metrics by coordinator and shift, with day/night performance comparisons.</div>
@@ -161,5 +239,94 @@
     </a>
   </div>
 </div>
+
+<script>
+  // Health-status indicator on each dashboard card.
+  // Polls the Worker's /health endpoint, derives a green/yellow/red color
+  // per dashboard from the time since last successful aggregation:
+  //   green:  last success within 2 minutes
+  //   yellow: last success 2–10 minutes ago
+  //   red:    last success >10 minutes ago, OR a recent error AND ≥3 consecutive failures
+  // The dot also pulses red when status is red.
+  const HEALTH_URL = 'https://lab-dashboard-api.kmead.workers.dev/health';
+  const POLL_MS = 30000; // refresh every 30s, same cadence as dashboards
+
+  function classifyStatus(entry, now) {
+    if (!entry || !entry.lastSuccess) {
+      return { color: 'red', label: 'No data yet — aggregator may not have run' };
+    }
+    const ageMs = now - new Date(entry.lastSuccess).getTime();
+    const ageMin = ageMs / 60000;
+    const consec = entry.consecutiveFailures || 0;
+    let color;
+    if (ageMin <= 2 && consec === 0) color = 'green';
+    else if (ageMin <= 10) color = 'yellow';
+    else color = 'red';
+    // Hard-red override: if the aggregator has failed 3+ times in a row,
+    // flag red even if the lastSuccess timestamp is technically recent.
+    if (consec >= 3) color = 'red';
+    return { color, ageMin, consec };
+  }
+
+  function formatAge(min) {
+    if (min < 1) return 'just now';
+    if (min < 2) return '1 min ago';
+    if (min < 60) return Math.round(min) + ' min ago';
+    const h = min / 60;
+    if (h < 24) return Math.round(h * 10) / 10 + ' hr ago';
+    return Math.round(h / 24) + ' day ago';
+  }
+
+  function buildTooltip(entry, classification) {
+    if (!entry || !entry.lastSuccess) {
+      return '<strong>Status: Unknown</strong><br>No successful run on record.';
+    }
+    const lastGood = formatAge(classification.ageMin);
+    let html = '<strong>Last good: ' + lastGood + '</strong>';
+    if (classification.consec > 0) {
+      html += '<br>' + classification.consec + ' consecutive failure' + (classification.consec === 1 ? '' : 's');
+    }
+    if (entry.lastError && entry.lastError.message) {
+      const msg = entry.lastError.message.length > 60
+        ? entry.lastError.message.slice(0, 60) + '…'
+        : entry.lastError.message;
+      html += '<br><span style="color:#9A9AA1">Error: ' + msg + '</span>';
+    }
+    return html;
+  }
+
+  async function refreshHealth() {
+    try {
+      const resp = await fetch(HEALTH_URL + '?t=' + Date.now());
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      const now = new Date(data.now || Date.now()).getTime();
+      ['lab', 'coordinator', 'outgoing'].forEach(t => {
+        const dot = document.getElementById('status-' + t);
+        const tip = document.getElementById('tooltip-' + t);
+        if (!dot || !tip) return;
+        const entry = data[t];
+        const cls = classifyStatus(entry, now);
+        dot.classList.remove('green', 'yellow', 'red');
+        dot.classList.add(cls.color);
+        tip.innerHTML = buildTooltip(entry, cls);
+      });
+    } catch (e) {
+      // Health endpoint unreachable — show all dots gray (default class) and a generic tooltip.
+      // We don't go red here because the dashboard cache might be fine; the /health endpoint
+      // itself just isn't responding (possible during a deploy).
+      ['lab', 'coordinator', 'outgoing'].forEach(t => {
+        const dot = document.getElementById('status-' + t);
+        const tip = document.getElementById('tooltip-' + t);
+        if (!dot || !tip) return;
+        dot.classList.remove('green', 'yellow', 'red');
+        tip.innerHTML = '<strong>Status: Unavailable</strong><br>Health endpoint not responding.';
+      });
+    }
+  }
+
+  refreshHealth();
+  setInterval(refreshHealth, POLL_MS);
+</script>
 </body>
 </html>

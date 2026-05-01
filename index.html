@@ -282,7 +282,7 @@
       return '<strong>Status: Unknown</strong><br>No successful run on record.';
     }
     const lastGood = formatAge(classification.ageMin);
-    let html = '<strong>Last good: ' + lastGood + '</strong>';
+    let html = '<strong>Last Update: ' + lastGood + '</strong>';
     if (classification.consec > 0) {
       html += '<br>' + classification.consec + ' consecutive failure' + (classification.consec === 1 ? '' : 's');
     }

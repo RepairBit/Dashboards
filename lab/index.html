@@ -1058,11 +1058,12 @@
     const cacheBust = "&t=" + Date.now();
     if (currentRange === 'custom' && customFrom && customTo) {
       return WORKER_URL +
-        "?from=" + encodeURIComponent(customFrom) +
+        "?type=lab" +
+        "&from=" + encodeURIComponent(customFrom) +
         "&to=" + encodeURIComponent(customTo) +
         cacheBust;
     }
-    return WORKER_URL + "?range=" + encodeURIComponent(currentRange) + cacheBust;
+    return WORKER_URL + "?type=lab&range=" + encodeURIComponent(currentRange) + cacheBust;
   }
 
   async function fetchData() {

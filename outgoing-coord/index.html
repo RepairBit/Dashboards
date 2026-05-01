@@ -760,16 +760,33 @@
         plugins: {
           legend: { display: false },
           tooltip: {
+            // Single combined tooltip — when you hover anywhere on the bar,
+            // show all stats (total, passed, kickback count + rate) at once
+            // instead of separate tooltips per segment.
+            mode: 'y',          // group all bars at the same y-axis position
+            intersect: false,   // trigger anywhere along the bar's row
             backgroundColor: '#1A1A1D', borderColor: '#27272B', borderWidth: 1,
             titleColor: COLORS.text, bodyColor: COLORS.text2, padding: 10,
             callbacks: {
+              // Use the first item's index as the row ref. Since both Passed
+              // and Kickback datasets share the same labels, items[0] is fine.
+              title: function(items) {
+                return items.length ? labels[items[0].dataIndex] : '';
+              },
+              // Replace the default per-segment label with a single combined
+              // body. We only emit lines on the first item so we don't repeat.
               label: function(c) {
+                if (c.datasetIndex !== 0) return null; // skip kickback dataset's row
                 const i = c.dataIndex;
-                if (c.dataset.label === 'Passed') {
-                  return 'Passed: ' + c.parsed.x.toLocaleString();
-                }
-                // Kickback row: include the percentage of total boards
-                return 'Kickback: ' + c.parsed.x.toLocaleString() + ' · ' + ratePct[i].toFixed(1) + '%';
+                const passed = passedData[i];
+                const kb = kickbackData[i];
+                const total = passed + kb;
+                const rate = ratePct[i].toFixed(1);
+                return [
+                  'Total: ' + total.toLocaleString(),
+                  'Passed: ' + passed.toLocaleString(),
+                  'Kickback: ' + kb.toLocaleString() + ' · ' + rate + '%',
+                ];
               }
             }
           }

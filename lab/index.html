@@ -1,1980 +1,2528 @@
-const HOURS_PER_DAY = 8;
-const TODAY_BPH_FLOOR_HOURS = 1; // minimum elapsed hours when computing live BPH for today
-const RANGES = ['today', 'week', 'month', 'quarter', 'ytd', 'all'];
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lab Performance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg:        #0A0A0B;
+    --surface:   #131316;
+    --surface-2: #1A1A1D;
+    --border:    #27272B;
+    --border-strong: #3A3A40;
 
-// Lab dashboard: exclude these "Type of Repair" values from all aggregation.
-// PSUs and CBs are different hardware than the boards the lab dashboard is
-// scoped to, and counting them inflates touches, repairs, BPH, etc. with
-// non-comparable work. Match is case-insensitive, trimmed, exact-string only
-// (so "PSU" is excluded but a hypothetical "PSU-Board" would still count).
-// To re-include them later, remove from this array and redeploy.
-const EXCLUDED_LAB_TYPES = ['PSU', 'CB'];
+    --text:      #FAFAFB;
+    --text-2:    #ECECEE;
+    --muted:     #9A9AA1;
+    --muted-2:   #6E6E76;
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+    --green:     #4ADE80;
+    --green-bg:  rgba(74,222,128,0.1);
+    --orange:    #FBBF24;
+    --orange-bg: rgba(251,191,36,0.1);
+    --red:       #F87171;
+    --red-bg:    rgba(248,113,113,0.1);
+    --purple:    #C084FC;
+    --purple-bg: rgba(192,132,252,0.1);
+    --brand:     #E07A1A;
 
-const DASHBOARDS = {
-  lab: {
-    sheetIdSecret: 'SHEET_ID',
-    tab: 'Aggregate Data',
-    cacheKey: 'dashboard_aggregated',
-    aggregator: aggregateLab,
-  },
-  coordinator: {
-    sheetIdSecret: 'COORDINATOR_SHEET_ID',
-    tab: 'Master Incoming',
-    cacheKey: 'coordinator_aggregated',
-    aggregator: aggregateCoordinator,
-  },
-  outgoing: {
-    sheetIdSecret: 'OUTGOING_SHEET_ID',
-    tab: 'Master Outgoing',
-    cacheKey: 'outgoing_aggregated',
-    aggregator: aggregateOutgoing,
-  },
-};
+    --false:     #3b82f6;
+    --false-bg:  rgba(59,130,246,0.1);
+    --giveup:    #f68b20;
+    --giveup-bg: rgba(246,139,32,0.1);
+    --grave:     #f15d25;
+    --grave-bg:  rgba(241,93,37,0.1);
+    --kickback:  #ef4444;
+    --kickback-bg: rgba(239,68,68,0.12);
 
-export default {
-  async fetch(request, env, ctx) {
-    if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+    --grid:      rgba(255,255,255,0.04);
+    --grid-strong: rgba(255,255,255,0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--text-2);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    min-height: 100vh;
+    padding: 28px 32px 36px;
+    overflow-x: hidden;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 28px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .brand-mark {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, #E07A1A, #C25E0F);
+    border-radius: 8px;
+    display: grid; place-items: center;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--bg);
+  }
+  .brand-mark-logo {
+    width: 52px; height: 52px;
+    object-fit: contain;
+    border-radius: 8px;
+    flex-shrink: 0;
+  }
+  .brand-wordmark {
+    height: 52px;
+    width: auto;
+    opacity: 0.9;
+  }
+  .brand-eyebrow {
+    font-size: 12px;
+    color: var(--muted-2);
+    letter-spacing: 0.2px;
+  }
+  .brand-title {
+    font-size: 32px;
+    font-weight: 600;
+    letter-spacing: -0.6px;
+    color: var(--text);
+    margin-top: 1px;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .live-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--green-bg);
+    border: 1px solid rgba(74,222,128,0.25);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--green);
+    font-weight: 500;
+  }
+  .live-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .clock {
+    font-size: 12px;
+    color: var(--muted);
+    padding: 6px 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-variant-numeric: tabular-nums;
+    min-width: 80px;
+    text-align: center;
+  }
+  .mode-toggle {
+    padding: 7px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-2);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .mode-toggle:hover { border-color: var(--border-strong); background: #222226; }
+  .mode-toggle.browse-mode {
+    background: rgba(224,122,26,0.12);
+    border-color: rgba(224,122,26,0.4);
+    color: var(--brand);
+  }
+
+  /* Filter row */
+  .filter-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 22px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .filter-bar {
+    display: inline-flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .filter-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 6px 14px;
+    font-size: 12px;
+    font-family: inherit;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+  }
+  .filter-btn:hover { color: var(--text-2); }
+  .filter-btn.active {
+    background: var(--border);
+    color: var(--text);
+  }
+  .filter-row-right {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .last-updated {
+    font-size: 12px;
+    color: var(--muted-2);
+  }
+
+  /* Tech filter dropdown */
+  .tech-filter-wrap {
+    position: relative;
+  }
+  .tech-filter-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-2);
+    padding: 6px 12px 6px 14px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.15s;
+    min-width: 200px;
+    justify-content: space-between;
+  }
+  .tech-filter-btn:hover { border-color: var(--border-strong); }
+  .tech-filter-btn.active {
+    background: rgba(224,122,26,0.12);
+    border-color: rgba(224,122,26,0.5);
+    color: var(--brand);
+  }
+  .tech-filter-btn-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tech-filter-btn-prefix {
+    color: var(--muted-2);
+    font-weight: 400;
+  }
+  .tech-filter-caret {
+    font-size: 9px;
+    color: var(--muted-2);
+    margin-left: 4px;
+  }
+  .tech-filter-panel {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 100;
+    width: 320px;
+    max-height: 480px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .tech-filter-panel.open { display: flex; }
+  .tech-filter-search {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tech-filter-search input {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    padding: 7px 10px;
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .tech-filter-search input:focus {
+    outline: none;
+    border-color: var(--brand);
+  }
+  .tech-filter-list {
+    overflow-y: auto;
+    flex: 1;
+    padding: 4px 0 6px;
+  }
+  .tech-filter-list::-webkit-scrollbar { width: 6px; }
+  .tech-filter-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .tech-filter-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 14px;
+    font-size: 12px;
+    color: var(--text-2);
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .tech-filter-option:hover { background: var(--surface-2); }
+  .tech-filter-option.selected {
+    background: rgba(224,122,26,0.15);
+    color: var(--brand);
+  }
+  .tech-filter-option .tech-option-level {
+    font-size: 10px;
+    color: var(--muted-2);
+  }
+  .tech-filter-group-label {
+    padding: 8px 14px 4px;
+    font-size: 10px;
+    color: var(--muted-2);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+  }
+  .tech-filter-all {
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+    padding: 9px 14px;
+    font-weight: 600;
+  }
+  .tech-filter-empty {
+    padding: 16px;
+    text-align: center;
+    color: var(--muted-2);
+    font-size: 12px;
+  }
+  /* Terminated techs in the dropdown — visually de-emphasized */
+  .tech-filter-option.terminated .tech-option-name {
+    color: var(--muted);
+    text-decoration: line-through;
+  }
+  .tech-filter-option.terminated .tech-option-level {
+    color: var(--red);
+    font-style: italic;
+  }
+  /* Visual separator between active teams and the Terminated group */
+  .tech-filter-group-label.terminated-group {
+    border-top: 1px solid var(--border);
+    margin-top: 6px;
+    padding-top: 12px;
+    color: var(--red);
+  }
+
+  /* Tech filter banner — visible when a tech is selected */
+  .tech-banner {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(90deg, rgba(224,122,26,0.18), rgba(224,122,26,0.04));
+    border: 1px solid rgba(224,122,26,0.4);
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin-bottom: 16px;
+  }
+  .tech-banner.show { display: flex; }
+  .tech-banner-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .tech-banner-eyebrow {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--brand);
+    font-weight: 600;
+  }
+  .tech-banner-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.3px;
+  }
+  .tech-banner-meta {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .tech-banner-meta strong { color: var(--text-2); font-weight: 500; }
+  .tech-banner-clear {
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    color: var(--text-2);
+    padding: 7px 14px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .tech-banner-clear:hover {
+    background: var(--bg);
+    border-color: var(--text-2);
+  }
+
+  /* === Custom date range panel === */
+  .custom-row {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    margin: -8px 0 22px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    flex-wrap: wrap;
+  }
+  .custom-row.open { display: flex; }
+  .custom-label {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+    margin-right: 4px;
+  }
+  .custom-row input[type="date"] {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 10px;
+    font-family: inherit;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color-scheme: dark;
+    cursor: pointer;
+  }
+  .custom-row input[type="date"]:hover { border-color: var(--border-strong); }
+  .custom-row input[type="date"]:focus {
+    outline: none;
+    border-color: var(--brand);
+  }
+  .custom-row .arrow {
+    color: var(--muted-2);
+    font-size: 12px;
+  }
+  .custom-row button.apply {
+    padding: 7px 16px;
+    background: var(--brand);
+    border: 1px solid var(--brand);
+    border-radius: 6px;
+    color: var(--bg);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.15s;
+  }
+  .custom-row button.apply:hover { filter: brightness(1.1); }
+  .custom-row button.apply:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .custom-row .quick-pick {
+    display: inline-flex;
+    gap: 4px;
+    margin-left: 8px;
+  }
+  .custom-row .quick-pick button {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--muted);
+    padding: 5px 10px;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .custom-row .quick-pick button:hover {
+    color: var(--text-2);
+    border-color: var(--border-strong);
+  }
+  .custom-error {
+    color: var(--red);
+    font-size: 11px;
+    margin-left: auto;
+  }
+
+  /* KPI strip */
+  .kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .kpi-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .kpi-label {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .kpi-value {
+    font-size: 36px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -1px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .kpi-value.green  { color: var(--green); }
+  .kpi-value.orange { color: var(--orange); }
+  .kpi-value.red    { color: var(--red); }
+  .kpi-value-sym {
+    font-size: 20px;
+    color: var(--muted-2);
+    margin-left: 2px;
+    font-weight: 500;
+  }
+  .kpi-progress-track {
+    margin-top: 12px;
+    height: 4px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .kpi-progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.4s ease;
+  }
+  .kpi-progress-fill.green  { background: var(--green); }
+  .kpi-progress-fill.orange { background: var(--orange); }
+  .kpi-progress-fill.red    { background: var(--red); }
+  .kpi-sub {
+    font-size: 11px;
+    color: var(--muted-2);
+    margin-top: 8px;
+  }
+
+  /* Outcomes pill in KPI */
+  .outcomes-row {
+    display: flex;
+    gap: 16px;
+    align-items: baseline;
+  }
+  .outcome-col { display: flex; flex-direction: column; }
+  .outcome-divider {
+    width: 1px;
+    align-self: stretch;
+    background: var(--border);
+  }
+  .outcome-num {
+    font-size: 30px;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.8px;
+  }
+  .outcome-num.purple { color: var(--purple); }
+  .outcome-num.orange { color: var(--orange); }
+  .outcome-num.red    { color: var(--red); }
+  .outcome-num.false-asic { color: var(--false); }
+  .outcome-num.giveup     { color: var(--giveup); }
+  .outcome-num.grave      { color: var(--grave); }
+  .outcome-label {
+    font-size: 11px;
+    color: var(--muted-2);
+    margin-top: 4px;
+  }
+  .outcome-bar {
+    margin-top: 14px;
+    height: 4px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 999px;
+    overflow: hidden;
+    display: flex;
+  }
+  .outcome-bar-purple { background: var(--purple); }
+  .outcome-bar-orange { background: var(--orange); }
+  .outcome-bar-red    { background: var(--red); }
+  .outcome-bar-false  { background: var(--false); }
+  .outcome-bar-giveup { background: var(--giveup); }
+  .outcome-bar-grave  { background: var(--grave); }
+
+  /* Charts */
+  .chart-row {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .chart-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .chart-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  .chart-meta {
+    font-size: 11px;
+    color: var(--muted-2);
+  }
+  .chart-legend {
+    display: flex;
+    gap: 14px;
+    font-size: 11px;
+  }
+  .chart-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+  }
+  .chart-legend-dot {
+    width: 8px; height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+  }
+  .chart-legend-line {
+    width: 14px; height: 2px;
+    background: var(--text);
+    border-radius: 1px;
+  }
+  .chart-canvas-wrap { position: relative; height: 180px; }
+  .chart-canvas-wrap.scatter { height: 280px; }
+
+  /* Section divider */
+  .section-divider {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin: 24px 0 16px;
+  }
+  .section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.2px;
+  }
+
+  /* Team strip */
+  .team-strip {
+    display: inline-flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 2px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    max-width: 100%;
+  }
+  .team-pill {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 6px 14px;
+    font-size: 12px;
+    font-family: inherit;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+  }
+  .team-pill:hover { color: var(--text-2); }
+  .team-pill.active {
+    background: var(--border);
+    color: var(--text);
+  }
+
+  /* Hide team strip and rotation row in tech-filter mode */
+  body.tech-filtered .team-strip,
+  body.tech-filtered .rotation-row,
+  body.tech-filtered .section-divider {
+    display: none;
+  }
+
+  /* Rotation */
+  .rotation-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    font-size: 11px;
+    color: var(--muted-2);
+  }
+  .progress-bar-wrap {
+    flex: 1;
+    height: 2px;
+    background: var(--border);
+    border-radius: 2px;
+    max-width: 200px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--brand);
+    border-radius: 2px;
+    width: 0%;
+  }
+
+  /* Team panels */
+  .team-stage { position: relative; min-height: 300px; }
+  .team-panel { display: none; animation: fadein 0.3s ease; }
+  .team-panel.active { display: block; }
+  @keyframes fadein {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .team-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 14px;
+  }
+  .team-name {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.2px;
+  }
+  .team-meta {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .team-meta strong { color: var(--text); font-weight: 500; }
+  .team-meta .pct.green  { color: var(--green); font-weight: 600; }
+  .team-meta .pct.orange { color: var(--orange); font-weight: 600; }
+  .team-meta .pct.red    { color: var(--red); font-weight: 600; }
+  .team-meta .bph.green  { color: var(--green); font-weight: 600; }
+  .team-meta .bph.orange { color: var(--orange); font-weight: 600; }
+  .team-meta .bph.red    { color: var(--red); font-weight: 600; }
+  .team-meta .kb.green  { color: var(--green); font-weight: 600; }
+  .team-meta .kb.orange { color: var(--orange); font-weight: 600; }
+  .team-meta .kb.red    { color: var(--red); font-weight: 600; }
+  .team-meta .sep {
+    color: var(--border-strong);
+    margin: 0 8px;
+  }
+
+  /* Tech cards */
+  .tech-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .tech-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    transition: border-color 0.15s;
+  }
+  .tech-card:hover { border-color: var(--border-strong); }
+  .tech-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 14px;
+  }
+  .tech-card-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.1px;
+  }
+  .tech-card-sub {
+    font-size: 11px;
+    color: var(--muted-2);
+    margin-top: 3px;
+  }
+  .tech-pct {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+  }
+  .tech-pct.green  { background: var(--green-bg);  color: var(--green); }
+  .tech-pct.orange { background: var(--orange-bg); color: var(--orange); }
+  .tech-pct.red    { background: var(--red-bg);    color: var(--red); }
+
+  .tech-bph-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tech-bph-value {
+    font-size: 32px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -1px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tech-bph-value.green  { color: var(--green); }
+  .tech-bph-value.orange { color: var(--orange); }
+  .tech-bph-value.red    { color: var(--red); }
+  .tech-bph-label {
+    font-size: 12px;
+    color: var(--muted-2);
+  }
+
+  .tech-stats {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+  }
+  .tech-stat-num {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .tech-stat-num.purple { color: var(--purple); }
+  .tech-stat-num.orange { color: var(--orange); }
+  .tech-stat-num.red    { color: var(--red); }
+  .tech-stat-num.false-asic { color: var(--false); }
+  .tech-stat-num.giveup     { color: var(--giveup); }
+  .tech-stat-num.grave      { color: var(--grave); }
+  .tech-stat-label {
+    font-size: 10px;
+    color: var(--muted-2);
+    margin-top: 4px;
+  }
+
+  /* Kickback line on tech card */
+  .tech-kickback {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+  }
+  .tech-kickback-label {
+    color: var(--muted-2);
+  }
+  .tech-kickback-val {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .tech-kickback-val.green  { color: var(--green); }
+  .tech-kickback-val.orange { color: var(--orange); }
+  .tech-kickback-val.red    { color: var(--red); }
+  .tech-kickback-val.muted  { color: var(--muted-2); }
+
+  /* Overview table */
+  .overview-table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .teams-table { width: 100%; border-collapse: collapse; }
+  .teams-table th {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+    padding: 14px 18px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .teams-table th:not(:first-child) { text-align: center; }
+  .teams-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s;
+  }
+  .teams-table th.sortable:hover { color: var(--text-2); }
+  .teams-table th.sortable.sorted { color: var(--text); }
+  .sort-arrow {
+    margin-left: 4px;
+    font-size: 10px;
+    opacity: 0.7;
+  }
+  .teams-table td {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .teams-table td:not(:first-child) { text-align: center; }
+  .teams-table tr:last-child td { border-bottom: none; }
+  .teams-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+  .team-name-cell {
+    font-weight: 600;
+    color: var(--text) !important;
+  }
+  .tech-title-cell {
+    font-size: 12px;
+    color: var(--muted) !important;
+  }
+  .tech-title-cell.terminated {
+    color: var(--red) !important;
+    text-decoration: line-through;
+    font-weight: 600;
+  }
+  .pct-cell.green  { color: var(--green); font-weight: 600; }
+  .pct-cell.orange { color: var(--orange); font-weight: 600; }
+  .pct-cell.red    { color: var(--red); font-weight: 600; }
+  .bph-cell.green  { color: var(--green); font-weight: 600; }
+  .bph-cell.orange { color: var(--orange); font-weight: 600; }
+  .bph-cell.red    { color: var(--red); font-weight: 600; }
+  .kb-cell.green   { color: var(--green); font-weight: 600; }
+  .kb-cell.orange  { color: var(--orange); font-weight: 600; }
+  .kb-cell.red     { color: var(--red); font-weight: 600; }
+  .kb-cell.muted   { color: var(--muted-2); }
+
+  .state-msg {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted-2);
+    font-size: 14px;
+  }
+
+  /* === Tech detail card (shown only in tech-filter mode) === */
+  .tech-detail-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-top: 4px;
+  }
+  .tech-detail-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 24px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--border);
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .tech-detail-name {
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.6px;
+    margin-bottom: 6px;
+  }
+  .tech-detail-sub {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .tech-detail-sub strong {
+    color: var(--text-2);
+    font-weight: 500;
+  }
+  .tech-detail-rank {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    min-width: 240px;
+  }
+  .tech-detail-rank-title {
+    font-size: 10px;
+    color: var(--muted-2);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    text-align: center;
+  }
+  .tech-detail-rank-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+  }
+  .tech-detail-rank-table th {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--muted-2);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 4px 6px;
+    text-align: center;
+    font-weight: 500;
+  }
+  .tech-detail-rank-table th:first-child { text-align: left; }
+  .tech-detail-rank-table td {
+    font-size: 13px;
+    padding: 5px 6px;
+    color: var(--text);
+    text-align: center;
+    font-weight: 600;
+  }
+  .tech-detail-rank-table td:first-child {
+    color: var(--muted);
+    text-align: left;
+    font-weight: 500;
+    font-size: 11px;
+  }
+  .tech-detail-rank-table td.rank-top { color: var(--green); }
+  .tech-detail-rank-table td.rank-mid { color: var(--text); }
+  .tech-detail-rank-table td.rank-low { color: var(--orange); }
+  .tech-detail-rank-table td.rank-bottom { color: var(--red); }
+  .tech-detail-rank-table td.rank-na { color: var(--muted-2); font-weight: 400; }
+  .tech-detail-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+    margin-bottom: 20px;
+  }
+  .tech-detail-block-label {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 500;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .tech-detail-block-value {
+    font-size: 38px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -1px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tech-detail-block-value.green  { color: var(--green); }
+  .tech-detail-block-value.orange { color: var(--orange); }
+  .tech-detail-block-value.red    { color: var(--red); }
+  .tech-detail-block-sub {
+    font-size: 12px;
+    color: var(--muted-2);
+    margin-top: 6px;
+  }
+  .tech-detail-stats {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 20px;
+    padding-top: 22px;
+    border-top: 1px solid var(--border);
+  }
+  .tech-detail-stat-label {
+    font-size: 11px;
+    color: var(--muted-2);
+    margin-bottom: 6px;
+  }
+  .tech-detail-stat-num {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .tech-detail-stat-num.false-asic { color: var(--false); }
+  .tech-detail-stat-num.giveup     { color: var(--giveup); }
+  .tech-detail-stat-num.grave      { color: var(--grave); }
+  .tech-detail-stat-num.kickback   { color: var(--kickback); }
+  .tech-detail-stat-num.muted-zero { color: var(--muted-2); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="brand">
+    <img src="../shared/wrench_transparent.png" alt="" class="brand-mark-logo" onerror="this.style.display='none'; this.insertAdjacentHTML('afterend', '<div class=\'brand-mark\'>R</div>');">
+    <div>
+      <div class="brand-title">Lab Dashboard</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <img src="../shared/repairbit-logo.png" alt="RepairBit" class="brand-wordmark" onerror="this.style.display='none'">
+    <div class="live-badge"><span class="live-dot"></span>Live</div>
+    <span class="clock" id="clock">--:--:--</span>
+    <button class="mode-toggle" id="modeToggle" onclick="toggleMode()">Presentation</button>
+  </div>
+</div>
+
+<div class="filter-row">
+  <div class="filter-bar">
+    <button class="filter-btn active" data-range="today" onclick="setRange('today')">Today</button>
+    <button class="filter-btn" data-range="week" onclick="setRange('week')">Week</button>
+    <button class="filter-btn" data-range="month" onclick="setRange('month')">Month</button>
+    <button class="filter-btn" data-range="quarter" onclick="setRange('quarter')">Quarter</button>
+    <button class="filter-btn" data-range="ytd" onclick="setRange('ytd')">YTD</button>
+    <button class="filter-btn" data-range="all" onclick="setRange('all')">All Time</button>
+    <button class="filter-btn" data-range="custom" onclick="toggleCustomPanel()">Custom</button>
+  </div>
+  <div class="filter-row-right">
+    <div class="tech-filter-wrap">
+      <button class="tech-filter-btn" id="techFilterBtn" onclick="toggleTechFilter(event)">
+        <span class="tech-filter-btn-label">
+          <span class="tech-filter-btn-prefix">Person:</span>
+          <span id="techFilterLabel">All techs</span>
+        </span>
+        <span class="tech-filter-caret">▼</span>
+      </button>
+      <div class="tech-filter-panel" id="techFilterPanel">
+        <div class="tech-filter-search">
+          <input type="text" id="techFilterSearch" placeholder="Search techs..." oninput="renderTechFilterList()" onclick="event.stopPropagation()">
+        </div>
+        <div class="tech-filter-list" id="techFilterList"></div>
+      </div>
+    </div>
+    <span class="last-updated" id="lastUpdated">Connecting...</span>
+  </div>
+</div>
+
+<div class="custom-row" id="customRow">
+  <span class="custom-label">From</span>
+  <input type="date" id="customFrom">
+  <span class="arrow">→</span>
+  <span class="custom-label">To</span>
+  <input type="date" id="customTo">
+  <button class="apply" id="customApply" onclick="applyCustomRange()">Apply</button>
+  <span class="quick-pick">
+    <button onclick="customQuickPick('yesterday')">Yesterday</button>
+    <button onclick="customQuickPick('last7')">Last 7 days</button>
+    <button onclick="customQuickPick('last30')">Last 30 days</button>
+    <button onclick="customQuickPick('lastmonth')">Last month</button>
+  </span>
+  <span class="custom-error" id="customError"></span>
+</div>
+
+<!-- Tech-filter banner -->
+<div class="tech-banner" id="techBanner">
+  <div class="tech-banner-left">
+    <div>
+      <div class="tech-banner-eyebrow">Viewing one tech</div>
+      <div class="tech-banner-name" id="techBannerName">—</div>
+      <div class="tech-banner-meta" id="techBannerMeta">—</div>
+    </div>
+  </div>
+  <button class="tech-banner-clear" onclick="clearTechFilter()">Clear filter</button>
+</div>
+
+<div class="kpi-strip">
+  <div class="kpi-card">
+    <div class="kpi-head"><span class="kpi-label" id="s-repairs-label">Total Repairs</span></div>
+    <div class="kpi-value" id="s-repairs">—</div>
+    <div class="kpi-progress-track"><div class="kpi-progress-fill" id="s-pct-bar" style="width: 0%;"></div></div>
+    <div class="kpi-sub" id="s-pct-sub">—</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-head"><span class="kpi-label">Boards per Hour</span></div>
+    <div class="kpi-value" id="s-bph">—</div>
+    <div class="kpi-progress-track"><div class="kpi-progress-fill" id="s-bph-bar" style="width: 0%;"></div></div>
+    <div class="kpi-sub" id="s-bph-sub">—</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-head"><span class="kpi-label" id="s-touches-label">Total Touches</span></div>
+    <div class="kpi-value" id="s-touches">—</div>
+    <div class="kpi-progress-track"><div class="kpi-progress-fill" style="width: 100%; background: rgba(255,255,255,0.2);"></div></div>
+    <div class="kpi-sub" id="s-touches-sub">All lab activity</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-head"><span class="kpi-label" id="s-unique-label">Unique Touches</span></div>
+    <div class="kpi-value" id="s-unique">—</div>
+    <div class="kpi-progress-track"><div class="kpi-progress-fill" id="s-unique-bar" style="width: 0%; background: rgba(255,255,255,0.35);"></div></div>
+    <div class="kpi-sub" id="s-unique-sub">—</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-head"><span class="kpi-label">Kickbacks</span></div>
+    <div class="kpi-value" id="s-kickbacks">—</div>
+    <div class="kpi-progress-track"><div class="kpi-progress-fill" id="s-kickback-bar" style="width: 0%;"></div></div>
+    <div class="kpi-sub" id="s-kickback-sub">—</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-head"><span class="kpi-label">Outcomes</span></div>
+    <div class="outcomes-row">
+      <div class="outcome-col">
+        <span class="outcome-num false-asic" id="s-false">—</span>
+        <span class="outcome-label">False ASICs</span>
+      </div>
+      <div class="outcome-divider"></div>
+      <div class="outcome-col">
+        <span class="outcome-num giveup" id="s-giveups">—</span>
+        <span class="outcome-label">Give-Ups</span>
+      </div>
+      <div class="outcome-divider"></div>
+      <div class="outcome-col">
+        <span class="outcome-num grave" id="s-grave">—</span>
+        <span class="outcome-label">Graveyards</span>
+      </div>
+    </div>
+    <div class="outcome-bar" id="s-outcome-bar"></div>
+  </div>
+</div>
+
+<div class="chart-row">
+  <div class="chart-card">
+    <div class="chart-head">
+      <div class="chart-title" id="trendChartTitle">Performance Trends</div>
+      <div class="chart-legend">
+        <span class="chart-legend-item"><span class="chart-legend-dot"></span>Repair %</span>
+        <span class="chart-legend-item"><span class="chart-legend-line"></span>BPH</span>
+      </div>
+    </div>
+    <div class="chart-canvas-wrap"><canvas id="trendChart"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-head">
+      <div class="chart-title">Overall Team Repair %</div>
+      <span class="chart-meta" id="teamsChartMeta">Sorted by Repair %</span>
+    </div>
+    <div class="chart-canvas-wrap"><canvas id="teamsChart"></canvas></div>
+  </div>
+</div>
+
+<div class="chart-card" style="margin-bottom: 12px;">
+  <div class="chart-head">
+    <div class="chart-title">Tech Distributions — BPH × Repair %</div>
+    <span class="chart-meta" id="scatterChartMeta">Each dot = one tech</span>
+  </div>
+  <div class="chart-canvas-wrap scatter"><canvas id="scatterChart"></canvas></div>
+</div>
+
+<div class="section-divider">
+  <div class="section-title">Teams</div>
+</div>
+
+<div class="team-strip" id="teamStrip"></div>
+
+<div class="rotation-row" id="rotationRow">
+  <span id="rotationLabel">Auto-rotating</span>
+  <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressBar"></div></div>
+</div>
+
+<div class="team-stage" id="teamStage">
+  <div class="state-msg">Loading team data...</div>
+</div>
+
+<script>
+  const WORKER_URL     = "https://lab-dashboard-api.kmead.workers.dev";
+  const REFRESH_MS     = 30000;
+  const TEAM_ROTATE_MS = 15000;
+
+  let currentData = null;
+  let teams = [], currentTeam = 0;
+  let rotateTimer = null, progTimer = null, progStart = null;
+  let browseMode = false;
+  let currentRange = "today";
+  let customFrom = null, customTo = null;
+  let trendChart = null, teamsChart = null, scatterChart = null;
+  let allTechsSortKey = "repairs", allTechsSortDir = "desc";
+
+  // Tech filter state. When selectedTechName is non-null, the dashboard
+  // re-renders to show only that tech's data. We resolve the actual tech
+  // object lazily because the data may not be loaded yet when the URL
+  // is parsed at page load.
+  let selectedTechName = null;
+
+  const COLORS = {
+    text: '#FAFAFB', text2: '#ECECEE', muted: '#9A9AA1', muted2: '#6E6E76',
+    grid: 'rgba(255,255,255,0.04)', gridStrong: 'rgba(255,255,255,0.08)',
+    green: '#4ADE80', orange: '#FBBF24', red: '#F87171', purple: '#C084FC',
+    brand: '#E07A1A',
+    ink: '#FAFAFB'
+  };
+
+  function tickClock() {
+    const c = document.getElementById('clock');
+    if (c) c.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
+  }
+  setInterval(tickClock, 1000);
+  tickClock();
+
+  // ============ URL state ============
+
+  function readUrlState() {
+    const params = new URLSearchParams(window.location.search);
+    const tech = params.get('tech');
+    if (tech) selectedTechName = tech;
+    const range = params.get('range');
+    if (range && ['today','week','month','quarter','ytd','all'].includes(range)) {
+      currentRange = range;
+      document.querySelectorAll(".filter-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.range === range);
+      });
+    }
+  }
+
+  function syncUrl() {
+    const params = new URLSearchParams();
+    if (currentRange !== 'today' && currentRange !== 'custom') params.set('range', currentRange);
+    if (selectedTechName) params.set('tech', selectedTechName);
+    const qs = params.toString();
+    const newUrl = window.location.pathname + (qs ? '?' + qs : '');
+    window.history.replaceState({}, '', newUrl);
+  }
+
+  // ============ Range / Custom panel ============
+
+  function setRange(range) {
+    if (range === currentRange && range !== 'custom') return;
+    currentRange = range;
+    customFrom = null;
+    customTo = null;
+    document.querySelectorAll(".filter-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.range === range);
+    });
+    closeCustomPanel();
+    currentTeam = 0;
+    syncUrl();
+    document.getElementById("lastUpdated").textContent = "Loading " + range + "...";
+    fetchData();
+  }
+
+  function toggleCustomPanel() {
+    const panel = document.getElementById("customRow");
+    if (panel.classList.contains("open")) {
+      closeCustomPanel();
+      if (currentRange !== 'custom') {
+        document.querySelectorAll(".filter-btn").forEach(b => {
+          b.classList.toggle("active", b.dataset.range === currentRange);
+        });
+      }
+    } else {
+      openCustomPanel();
+    }
+  }
+
+  function openCustomPanel() {
+    const panel = document.getElementById("customRow");
+    panel.classList.add("open");
+    document.querySelectorAll(".filter-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.range === 'custom');
+    });
+    const fromEl = document.getElementById("customFrom");
+    const toEl = document.getElementById("customTo");
+    if (customFrom && customTo) {
+      fromEl.value = customFrom;
+      toEl.value = customTo;
+    } else {
+      const today = new Date();
+      const weekAgo = new Date();
+      weekAgo.setDate(today.getDate() - 6);
+      if (!fromEl.value) fromEl.value = ymd(weekAgo);
+      if (!toEl.value) toEl.value = ymd(today);
+    }
+    document.getElementById("customError").textContent = "";
+  }
+
+  function closeCustomPanel() {
+    document.getElementById("customRow").classList.remove("open");
+    document.getElementById("customError").textContent = "";
+  }
+
+  function ymd(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+
+  function applyCustomRange() {
+    const fromEl = document.getElementById("customFrom");
+    const toEl = document.getElementById("customTo");
+    const errEl = document.getElementById("customError");
+    const f = fromEl.value;
+    const t = toEl.value;
+    if (!f || !t) { errEl.textContent = "Pick both From and To dates."; return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || !/^\d{4}-\d{2}-\d{2}$/.test(t)) { errEl.textContent = "Invalid date format."; return; }
+    if (f > t) { errEl.textContent = "From date must be on or before To date."; return; }
+    errEl.textContent = "";
+    customFrom = f;
+    customTo = t;
+    currentRange = 'custom';
+    currentTeam = 0;
+    document.querySelectorAll(".filter-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.range === 'custom');
+    });
+    document.getElementById("lastUpdated").textContent = "Loading " + f + " → " + t + "...";
+    fetchData();
+  }
+
+  function customQuickPick(which) {
+    const today = new Date();
+    let from, to;
+    switch (which) {
+      case 'yesterday': { const y = new Date(); y.setDate(today.getDate() - 1); from = ymd(y); to = ymd(y); break; }
+      case 'last7':     { const s = new Date(); s.setDate(today.getDate() - 6); from = ymd(s); to = ymd(today); break; }
+      case 'last30':    { const s = new Date(); s.setDate(today.getDate() - 29); from = ymd(s); to = ymd(today); break; }
+      case 'lastmonth': {
+        const lmEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+        const lmStart = new Date(lmEnd.getFullYear(), lmEnd.getMonth(), 1);
+        from = ymd(lmStart); to = ymd(lmEnd); break;
+      }
+      default: return;
+    }
+    document.getElementById("customFrom").value = from;
+    document.getElementById("customTo").value = to;
+    applyCustomRange();
+  }
+
+  // ============ Mode toggle ============
+
+  function toggleMode() {
+    browseMode = !browseMode;
+    const btn = document.getElementById("modeToggle");
+    if (browseMode) {
+      btn.textContent = "Browse";
+      btn.classList.add("browse-mode");
+      if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; }
+      if (progTimer) { cancelAnimationFrame(progTimer); progTimer = null; }
+      const pb = document.getElementById("progressBar");
+      if (pb) pb.style.width = "0%";
+      document.getElementById("rotationLabel").textContent = "Paused";
+    } else {
+      btn.textContent = "Presentation";
+      btn.classList.remove("browse-mode");
+      document.getElementById("rotationLabel").textContent = "Auto-rotating";
+      // Don't restart rotation if a tech filter is active
+      if (!selectedTechName) startRotation();
+    }
+  }
+
+  // ============ Tech filter ============
+  //
+  // The tech filter narrows the dashboard to a single tech's view.
+  // - KPI strip switches to that tech's numbers
+  // - Trend chart switches to their per-tech trend (added in Worker v3.1)
+  // - A detail card replaces the team panels
+  // - The scatter plot highlights their dot
+  // - Auto-rotation pauses
+
+  // Get a flat list of all tech objects with team name attached.
+  // Pulls from teamPanels (which has full metrics) and also techScatter
+  // (which often includes additional entries like terminated techs whose
+  // team panel isn't in the current range).
+  function getAllTechs() {
+    if (!currentData) return [];
+    const seen = {};
+    const out = [];
+    (currentData.teamPanels || []).forEach(panel => {
+      const terminated = (panel.name || '').toLowerCase().trim() === 'terminated';
+      (panel.techs || []).forEach(t => {
+        if (seen[t.name]) return;
+        seen[t.name] = true;
+        out.push({ ...t, team: panel.name, terminated: terminated });
+      });
+    });
+    // Add any techs that appear only in techScatter (e.g. terminated techs
+    // outside their original team panel). Build a synthetic tech object
+    // with the bare-minimum fields the detail card needs.
+    (currentData.techScatter || []).forEach(p => {
+      if (seen[p.name]) return;
+      seen[p.name] = true;
+      const terminated = (p.team || '').toLowerCase().trim() === 'terminated';
+      out.push({
+        name: p.name,
+        level: p.level || '',
+        team: p.team || 'Unknown',
+        terminated: terminated,
+        // techScatter only has bph + pct, so synthesize the rest as zeros.
+        // The detail card will show "—" rather than crash for missing fields.
+        touches: 0, repairs: 0, falseAsics: 0, giveups: 0, graveyards: 0,
+        bph: p.x || 0, pct: p.y || 0, techDays: 0,
+        kickbacks: 0, kickbackRate: 0,
+        trend: null,
+        _scatterOnly: true,
+      });
+    });
+    return out;
+  }
+
+  // Find the tech object for the currently-selected name. Returns null if no
+  // tech is selected OR if the name doesn't match anything in the current data.
+  function getSelectedTech() {
+    if (!selectedTechName || !currentData) return null;
+    const all = getAllTechs();
+    return all.find(t => t.name === selectedTechName) || null;
+  }
+
+  function toggleTechFilter(event) {
+    if (event) event.stopPropagation();
+    const panel = document.getElementById("techFilterPanel");
+    if (panel.classList.contains("open")) {
+      closeTechFilter();
+    } else {
+      openTechFilter();
+    }
+  }
+
+  function openTechFilter() {
+    const panel = document.getElementById("techFilterPanel");
+    panel.classList.add("open");
+    document.getElementById("techFilterSearch").value = "";
+    renderTechFilterList();
+    // Focus the search box for keyboard typing
+    setTimeout(() => document.getElementById("techFilterSearch").focus(), 0);
+  }
+
+  function closeTechFilter() {
+    document.getElementById("techFilterPanel").classList.remove("open");
+  }
+
+  // Close the dropdown when clicking outside it
+  document.addEventListener("click", function(e) {
+    const wrap = document.querySelector(".tech-filter-wrap");
+    if (wrap && !wrap.contains(e.target)) {
+      closeTechFilter();
+    }
+  });
+
+  function renderTechFilterList() {
+    if (!currentData || !currentData.teamPanels) {
+      document.getElementById("techFilterList").innerHTML =
+        '<div class="tech-filter-empty">Loading techs...</div>';
+      return;
+    }
+    const search = (document.getElementById("techFilterSearch").value || "").toLowerCase().trim();
+
+    // Build a union of all known techs across teamPanels and techScatter.
+    // teamPanels contains techs with data; techScatter often contains additional
+    // entries (notably terminated techs from prior periods that don't get their
+    // own team panel in the current range). We use this union so the filter
+    // dropdown always shows everyone who has any data, even if they're not in
+    // a team panel right now.
+    const seen = {};
+    const allList = [];
+    function addTech(t, teamName) {
+      if (seen[t.name]) return;
+      seen[t.name] = true;
+      allList.push({
+        name: t.name,
+        level: t.level || '',
+        team: teamName || 'Unknown',
+        terminated: (teamName || '').toLowerCase().trim() === 'terminated',
+      });
+    }
+    (currentData.teamPanels || []).forEach(panel => {
+      (panel.techs || []).forEach(t => addTech(t, panel.name));
+    });
+    (currentData.techScatter || []).forEach(p => addTech(p, p.team));
+
+    // Filter by search query (matches name or level)
+    const matching = allList.filter(t => {
+      if (!search) return true;
+      const hay = (t.name + ' ' + t.level).toLowerCase();
+      return hay.includes(search);
+    });
+
+    // Group by team. Active teams come first (in the order they appear in
+    // teamPanels, which is numeric for Team N). Then any teams that only
+    // exist in techScatter (e.g. Training if it has no panel). Then Terminated
+    // last with a visual separator.
+    const teamOrder = [];
+    function pushTeamOrder(name) {
+      if (!teamOrder.includes(name)) teamOrder.push(name);
+    }
+    (currentData.teamPanels || []).forEach(p => pushTeamOrder(p.name));
+    matching.forEach(t => pushTeamOrder(t.team));
+
+    // Move 'Terminated' to the end if present
+    const termIdx = teamOrder.findIndex(n => (n || '').toLowerCase().trim() === 'terminated');
+    if (termIdx >= 0) {
+      const [term] = teamOrder.splice(termIdx, 1);
+      teamOrder.push(term);
+    }
+
+    // Title rank for sorting within a team: lower number = higher rank
+    function titleRank(level) {
+      const l = (level || '').toLowerCase();
+      if (l.includes('lead')) return 1;
+      if (l.includes('senior') || l.includes('sr ') || /\bsr\.?$/.test(l)) return 2;
+      if (l.includes('iii') || l.includes('l3') || / 3$/.test(l)) return 3;
+      if (l.includes(' ii') || l.includes('l2') || / 2$/.test(l)) return 4;
+      if (l.match(/\bi\b/) || l.includes('l1') || / 1$/.test(l)) return 5;
+      if (l.includes('training')) return 6;
+      if (l.includes('terminated')) return 99;
+      return 50;
+    }
+
+    // Friendly title for the Terminated group
+    function levelForTerminatedDisplay(level) {
+      // If their level was wiped or just says "Terminated", show that.
+      // Otherwise show their last known title in italics.
+      if (!level || level.toLowerCase().includes('terminated')) return 'Terminated';
+      return level;
+    }
+
+    let html = '';
+    // "All techs" option at the top
+    const allSelected = !selectedTechName;
+    html += '<div class="tech-filter-option tech-filter-all' + (allSelected ? ' selected' : '') + '" ' +
+            'onclick="selectTech(null)">All techs</div>';
+
+    teamOrder.forEach(teamName => {
+      const teamTechs = matching.filter(t => t.team === teamName);
+      if (teamTechs.length === 0) return;
+
+      const isTerminated = (teamName || '').toLowerCase().trim() === 'terminated';
+
+      // Sort within team: by title rank ascending, then by name alphabetically
+      teamTechs.sort((a, b) => {
+        const ra = titleRank(a.level);
+        const rb = titleRank(b.level);
+        if (ra !== rb) return ra - rb;
+        return a.name.localeCompare(b.name);
+      });
+
+      const groupClass = 'tech-filter-group-label' + (isTerminated ? ' terminated-group' : '');
+      html += '<div class="' + groupClass + '">' + esc(teamName) + '</div>';
+
+      teamTechs.forEach(t => {
+        const isSelected = selectedTechName === t.name;
+        const cls = 'tech-filter-option' + (isSelected ? ' selected' : '') + (t.terminated ? ' terminated' : '');
+        const displayLevel = t.terminated ? levelForTerminatedDisplay(t.level) : t.level;
+        html += '<div class="' + cls + '" ' +
+                'onclick="selectTech(' + JSON.stringify(t.name).replace(/"/g,'&quot;') + ')">' +
+                '<span class="tech-option-name">' + esc(t.name) + '</span>' +
+                '<span class="tech-option-level">' + esc(displayLevel || '') + '</span>' +
+                '</div>';
+      });
+    });
+
+    if (!html.includes("tech-filter-option") || (allList.length > 0 && matching.length === 0)) {
+      // If only the "All techs" entry got rendered (and there's a search) it's a no-match
+      if (search && matching.length === 0) {
+        html = '<div class="tech-filter-empty">No matches for "' + esc(search) + '"</div>';
+      }
+    }
+
+    document.getElementById("techFilterList").innerHTML = html;
+  }
+
+  function selectTech(name) {
+    selectedTechName = name;
+    closeTechFilter();
+    syncUrl();
+    // Auto-switch to Browse mode when picking a tech (no rotation in this mode)
+    if (name && !browseMode) {
+      toggleMode();
+    }
+    renderAll();
+  }
+
+  function clearTechFilter() {
+    selectedTechName = null;
+    syncUrl();
+    renderAll();
+  }
+
+  function updateTechFilterButton() {
+    const btn = document.getElementById("techFilterBtn");
+    const label = document.getElementById("techFilterLabel");
+    if (selectedTechName) {
+      btn.classList.add("active");
+      label.textContent = selectedTechName;
+    } else {
+      btn.classList.remove("active");
+      label.textContent = "All techs";
+    }
+  }
+
+  // ============ Data fetch ============
+
+  function buildFetchUrl() {
+    const cacheBust = "&t=" + Date.now();
+    if (currentRange === 'custom' && customFrom && customTo) {
+      return WORKER_URL +
+        "?type=lab" +
+        "&from=" + encodeURIComponent(customFrom) +
+        "&to=" + encodeURIComponent(customTo) +
+        cacheBust;
+    }
+    return WORKER_URL + "?type=lab&range=" + encodeURIComponent(currentRange) + cacheBust;
+  }
+
+  async function fetchData() {
     try {
-      const url = new URL(request.url);
+      const res = await fetch(buildFetchUrl());
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      currentData = json;
+      renderAll();
+      const updateLabel = (currentRange === 'custom' && customFrom && customTo)
+        ? "Showing " + customFrom + " → " + customTo
+        : "Updated " + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      document.getElementById("lastUpdated").textContent = updateLabel;
+    } catch (e) {
+      document.getElementById("lastUpdated").textContent = "Connection error — retrying";
+    }
+  }
 
-      // Health endpoint: returns status of all three aggregators.
-      // Reads <type>_status keys written by runAggregation on success/failure.
-      // Response shape:
-      //   {
-      //     lab:         { lastSuccess, lastError, consecutiveFailures, alertSent },
-      //     coordinator: { lastSuccess, lastError, consecutiveFailures, alertSent },
-      //     outgoing:    { lastSuccess, lastError, consecutiveFailures, alertSent },
-      //     now: ISO
-      //   }
-      // - lastSuccess: ISO timestamp of most recent successful aggregation (or null)
-      // - lastError:   { message, at } from most recent failure (or null if last tick succeeded)
-      // - consecutiveFailures: count of failures since last success (0 means healthy)
-      // - alertSent: true if a Chat alert has already been sent for the current outage
-      if (url.pathname === '/health') {
-        const types = ['lab', 'coordinator', 'outgoing'];
-        const result = { now: new Date().toISOString() };
-        await Promise.all(types.map(async (t) => {
-          const raw = await env.DASHBOARD_CACHE.get(`${t}_status`);
-          result[t] = raw
-            ? JSON.parse(raw)
-            : { lastSuccess: null, lastError: null, consecutiveFailures: 0, alertSent: false };
-        }));
-        return jsonResponse(JSON.stringify(result));
+  // ============ Render helpers ============
+
+  function pctClass(pct) {
+    if (pct >= 60) return "green";
+    if (pct > 45)  return "orange";
+    return "red";
+  }
+  function bphClass(bph) {
+    if (bph >= 1.0) return "green";
+    if (bph >= 0.5) return "orange";
+    return "red";
+  }
+  function kbRateClass(rate, kickbacks) {
+    if (kickbacks === 0) return "green";
+    if (rate < 10) return "green";
+    if (rate <= 25) return "orange";
+    return "red";
+  }
+  function classToColor(cls) { return COLORS[cls] || COLORS.text; }
+  function fmtBPH(v) { return Number(v).toFixed(2); }
+  function fmtRate(v) {
+    const n = Number(v);
+    if (Number.isInteger(n)) return n.toString();
+    return n.toFixed(1);
+  }
+
+  function renderTrendChart(trend, isPerTech) {
+    const ctx = document.getElementById('trendChart');
+    if (trendChart) trendChart.destroy();
+    const title = document.getElementById("trendChartTitle");
+    if (title) title.textContent = isPerTech ? "Personal Performance Trend" : "Performance Trends";
+    // Guard: if a per-tech trend has no buckets yet (e.g. tech started today
+    // and bucket math gives one entry), still render the empty chart cleanly.
+    const labels = (trend && trend.labels) || [];
+    const pcts   = (trend && trend.pcts)   || [];
+    const bphs   = (trend && trend.bphs)   || [];
+    trendChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Repair %', data: pcts,
+            borderColor: COLORS.green, backgroundColor: 'rgba(74,222,128,0.12)',
+            borderWidth: 2, tension: 0.35, yAxisID: 'y', fill: true,
+            pointRadius: 3, pointBackgroundColor: COLORS.green,
+            pointBorderColor: '#0A0A0B', pointBorderWidth: 1
+          },
+          {
+            label: 'BPH', data: bphs,
+            borderColor: COLORS.text, borderWidth: 1.5, borderDash: [4,3], tension: 0.35,
+            yAxisID: 'y1', pointRadius: 3, pointBackgroundColor: COLORS.text,
+            pointBorderColor: '#0A0A0B', pointBorderWidth: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            mode: 'index', intersect: false,
+            backgroundColor: '#1A1A1D', borderColor: '#27272B', borderWidth: 1,
+            titleColor: COLORS.text, bodyColor: COLORS.text2, padding: 10
+          }
+        },
+        scales: {
+          x: { ticks: { font: { family: 'Inter', size: 11 }, color: COLORS.muted2, maxRotation: 0 }, grid: { color: COLORS.grid, drawBorder: false } },
+          y: { position: 'left', min: 0, max: 100, ticks: { callback: v => v + '%', font: { family: 'Inter', size: 11 }, color: COLORS.green }, grid: { color: COLORS.grid, drawBorder: false } },
+          y1: { position: 'right', min: 0, ticks: { font: { family: 'Inter', size: 11 }, color: COLORS.text2 }, grid: { display: false } }
+        }
       }
+    });
+  }
 
-      // TEMPORARY test alert endpoint — remove after verifying Google Chat webhook works.
-      // Hit /test-alert in your browser; you should see a red alert message in your
-      // Google Chat space within a couple of seconds. Once confirmed, delete this block.
-      if (url.pathname === '/test-alert') {
-        await sendChatAlert(env, {
-          kind: 'failure',
-          type: 'lab',
-          consecutiveFailures: 3,
-          message: 'This is a test alert. If you can see this in Google Chat, the integration is working.',
-          lastSuccess: new Date().toISOString(),
+  function renderTeamsChart(teamSummaries, highlightTeam) {
+    const sorted = [...teamSummaries].sort((a,b) => b.pct - a.pct);
+    const ctx = document.getElementById('teamsChart');
+    if (teamsChart) teamsChart.destroy();
+    // If a team is highlighted (because a tech in it is selected), make the
+    // others' bars dimmer so the comparison stands out.
+    const bgColors = sorted.map(t => {
+      const base = classToColor(pctClass(t.pct));
+      if (!highlightTeam) return base;
+      return t.name === highlightTeam ? base : base + '55'; // hex alpha = dim
+    });
+    teamsChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: sorted.map(t => t.name),
+        datasets: [{
+          label: 'Repair %', data: sorted.map(t => t.pct),
+          backgroundColor: bgColors,
+          borderColor: 'transparent', borderWidth: 0, borderRadius: 4
+        }]
+      },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1A1A1D', borderColor: '#27272B', borderWidth: 1,
+            titleColor: COLORS.text, bodyColor: COLORS.text2, padding: 10,
+            callbacks: { label: c => c.parsed.x + '%' }
+          }
+        },
+        scales: {
+          x: { min: 0, max: 100, ticks: { callback: v => v + '%', font: { family: 'Inter', size: 11 }, color: COLORS.muted2 }, grid: { color: COLORS.grid, drawBorder: false } },
+          y: { ticks: { font: { family: 'Inter', size: 12 }, color: COLORS.text2 }, grid: { display: false } }
+        }
+      }
+    });
+  }
+
+  function renderScatterChart(techPoints, highlightName) {
+    const groups = { L1: [], L2: [], L3: [], SrLead: [], Other: [] };
+    techPoints.forEach(p => {
+      const lvl = (p.level || "").toUpperCase();
+      if (lvl.includes("LEAD") || lvl.includes("SR") || lvl.includes("SENIOR")) groups.SrLead.push(p);
+      else if (lvl.includes("L3") || lvl.includes("III")) groups.L3.push(p);
+      else if (lvl.includes("L2") || lvl.includes("II")) groups.L2.push(p);
+      else if (lvl.includes("L1") || lvl.includes(" I")) groups.L1.push(p);
+      else groups.Other.push(p);
+    });
+    const datasets = [];
+    // Helper: dim points that aren't the highlighted tech
+    function dimColor(color, isHighlightedPoint) {
+      if (!highlightName) return color;
+      if (isHighlightedPoint) return color;
+      // Add transparency to non-highlighted points
+      return color + '40';
+    }
+    function pointRadius(p, isHighlightedPoint) {
+      if (!highlightName) return 7;
+      if (isHighlightedPoint) return 11;
+      return 5;
+    }
+    function borderWidth(p, isHighlightedPoint) {
+      if (!highlightName) return 2;
+      if (isHighlightedPoint) return 3;
+      return 1;
+    }
+
+    function addGroup(group, label, style, color) {
+      if (!group.length) return;
+      datasets.push({
+        label: label,
+        data: group,
+        pointStyle: style,
+        backgroundColor: group.map(p => dimColor(color, p.name === highlightName)),
+        borderColor: group.map(p => dimColor(color, p.name === highlightName)),
+        borderWidth: group.map(p => borderWidth(p, p.name === highlightName)),
+        pointRadius: group.map(p => pointRadius(p, p.name === highlightName)),
+        hoverRadius: 11
+      });
+    }
+    // Sr/Lead is drawn as transparent fill with green border in original — keep it
+    if (groups.SrLead.length) {
+      datasets.push({
+        label: 'Sr / Lead', data: groups.SrLead, pointStyle: 'circle',
+        backgroundColor: 'transparent',
+        borderColor: groups.SrLead.map(p => dimColor(COLORS.green, p.name === highlightName)),
+        borderWidth: groups.SrLead.map(p => borderWidth(p, p.name === highlightName) + 0.5),
+        pointRadius: groups.SrLead.map(p => pointRadius(p, p.name === highlightName)),
+        hoverRadius: 11
+      });
+    }
+    addGroup(groups.L3, 'L3', 'star', COLORS.purple);
+    addGroup(groups.L2, 'L2', 'triangle', COLORS.orange);
+    addGroup(groups.L1, 'L1', 'rect', COLORS.red);
+    addGroup(groups.Other, 'Other', 'crossRot', COLORS.text);
+
+    const maxBph = Math.max(1, ...techPoints.map(p => p.x)) * 1.1;
+    const ctx = document.getElementById('scatterChart');
+    if (scatterChart) scatterChart.destroy();
+    scatterChart = new Chart(ctx, {
+      type: 'scatter', data: { datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true, position: 'bottom', labels: { font: { family: 'Inter', size: 11 }, color: COLORS.text2, boxWidth: 10, boxHeight: 10, usePointStyle: true, padding: 16 } },
+          tooltip: {
+            backgroundColor: '#1A1A1D', borderColor: '#27272B', borderWidth: 1,
+            titleColor: COLORS.text, bodyColor: COLORS.text2, padding: 10,
+            callbacks: { label: c => c.raw.name + ': ' + c.parsed.x.toFixed(2) + ' BPH, ' + c.parsed.y + '%' }
+          }
+        },
+        scales: {
+          x: { min: 0, max: maxBph, title: { display: true, text: 'BPH →', font: { family: 'Inter', size: 11 }, color: COLORS.muted }, ticks: { font: { family: 'Inter', size: 11 }, color: COLORS.muted2 }, grid: { color: COLORS.grid, drawBorder: false } },
+          y: { min: 0, max: 100, title: { display: true, text: 'Repair % →', font: { family: 'Inter', size: 11 }, color: COLORS.muted }, ticks: { callback: v => v + '%', font: { family: 'Inter', size: 11 }, color: COLORS.muted2 }, grid: { color: COLORS.grid, drawBorder: false } }
+        }
+      }
+    });
+  }
+
+  function renderAllTechsPanel() {
+    if (!currentData || !currentData.teamPanels) return '';
+    const allTechs = [];
+    currentData.teamPanels.forEach(panel => {
+      const isTerminatedTeam = (panel.name || '').toLowerCase().trim() === 'terminated';
+      panel.techs.forEach(t => {
+        const title = isTerminatedTeam ? 'Terminated' : (t.level || '');
+        allTechs.push({
+          name: t.name,
+          title: title,
+          team: panel.name,
+          touches: t.touches,
+          repairs: t.repairs,
+          falseAsics: t.falseAsics,
+          giveups: t.giveups,
+          graveyards: t.graveyards,
+          kickbacks: t.kickbacks || 0,
+          kickbackRate: t.kickbackRate || 0,
+          pct: t.pct,
+          bph: t.bph,
+          terminated: isTerminatedTeam,
         });
-        return jsonResponse(JSON.stringify({ sent: true }));
-      }
+      });
+    });
 
-      const type = url.searchParams.get('type') || 'lab';
-      const range = url.searchParams.get('range') || 'today';
-      const from = url.searchParams.get('from'); // YYYY-MM-DD
-      const to   = url.searchParams.get('to');   // YYYY-MM-DD
-      const config = DASHBOARDS[type];
-      if (!config) return errorResponse(400, `Unknown type: ${type}`);
+    const sorted = [...allTechs].sort((a, b) => {
+      const av = a[allTechsSortKey], bv = b[allTechsSortKey];
+      let cmp;
+      if (typeof av === "string") cmp = av.localeCompare(bv);
+      else cmp = av - bv;
+      return allTechsSortDir === "desc" ? -cmp : cmp;
+    });
 
-      if (url.searchParams.get('refresh') === '1') {
-        await runAggregation(env, type);
-        return jsonResponse(JSON.stringify({ refreshed: true, type }));
-      }
+    const arrow = allTechsSortDir === "desc" ? "▼" : "▲";
+    const cols = [
+      { key: "name",       label: "Name" },
+      { key: "title",      label: "Title" },
+      { key: "touches",    label: "Touches" },
+      { key: "repairs",    label: "Repairs" },
+      { key: "falseAsics", label: "False ASICs" },
+      { key: "giveups",    label: "Give-Ups" },
+      { key: "graveyards", label: "Graveyards" },
+      { key: "kickbacks",  label: "Kickbacks" },
+      { key: "pct",        label: "Repair %" },
+      { key: "bph",        label: "BPH" },
+    ];
+    const headHTML = cols.map(c => {
+      const isSorted = c.key === allTechsSortKey;
+      const cls = "sortable" + (isSorted ? " sorted" : "");
+      const ar = isSorted ? '<span class="sort-arrow">' + arrow + '</span>' : '';
+      return '<th class="' + cls + '" onclick="sortAllTechs(\'' + c.key + '\')">' + c.label + ar + '</th>';
+    }).join("");
 
-      // Custom date range path. If both from and to are supplied and look like
-      // YYYY-MM-DD, compute the aggregation on-demand using the cached raw rows.
-      // This bypasses the pre-aggregated cache because custom ranges have
-      // infinite combinations.
-      // Lab uses simple calendar-day boundaries (00:00 to 23:59).
-      // Coordinator and Outgoing use operating-day boundaries (1 AM to 1 AM the
-      // next day) so a night shift that crosses midnight stays attached to its
-      // starting day — same convention as their preset ranges.
-      if (from && to) {
-        if (!isValidDateString(from) || !isValidDateString(to)) {
-          return errorResponse(400, 'from and to must be YYYY-MM-DD');
+    const bodyHTML = sorted.map(t => {
+      const tKickbacks = t.kickbacks;
+      const tKbRate = t.kickbackRate;
+      const tKbCls = kbRateClass(tKbRate, tKickbacks);
+      const kbDisplay = tKickbacks === 0
+        ? '<span class="kb-cell muted">0</span>'
+        : '<span class="kb-cell ' + tKbCls + '">' + tKickbacks + ' · ' + fmtRate(tKbRate) + '%</span>';
+      return '<tr>' +
+        '<td class="team-name-cell">' + esc(t.name) + '</td>' +
+        '<td class="tech-title-cell' + (t.terminated ? ' terminated' : '') + '">' + esc(t.title || '—') + '</td>' +
+        '<td>' + t.touches.toLocaleString() + '</td>' +
+        '<td>' + t.repairs.toLocaleString() + '</td>' +
+        '<td>' + t.falseAsics + '</td>' +
+        '<td>' + t.giveups + '</td>' +
+        '<td>' + t.graveyards + '</td>' +
+        '<td>' + kbDisplay + '</td>' +
+        '<td class="pct-cell ' + pctClass(t.pct) + '">' + t.pct + '%</td>' +
+        '<td class="bph-cell ' + bphClass(t.bph) + '">' + fmtBPH(t.bph) + '</td>' +
+      '</tr>';
+    }).join("");
+
+    return '<div class="overview-table-wrap">' +
+      '<table class="teams-table"><thead><tr>' + headHTML + '</tr></thead>' +
+      '<tbody>' + bodyHTML + '</tbody></table>' +
+      '</div>';
+  }
+
+  function sortAllTechs(key) {
+    if (allTechsSortKey === key) {
+      allTechsSortDir = allTechsSortDir === "desc" ? "asc" : "desc";
+    } else {
+      allTechsSortKey = key;
+      allTechsSortDir = (key === "name" || key === "title") ? "asc" : "desc";
+    }
+    const panel = document.getElementById("team-1");
+    if (panel) panel.innerHTML = renderAllTechsPanel();
+  }
+
+  // ============ Render: tech-filter mode ============
+
+  // Build a detail card for the selected tech and return its HTML
+  function buildTechDetailCard(tech) {
+    const pCls = pctClass(tech.pct);
+    const bCls = bphClass(tech.bph);
+    const kickbacks = tech.kickbacks || 0;
+    const kbRate = tech.kickbackRate || 0;
+    const kbCls = kbRateClass(kbRate, kickbacks);
+
+    // === Rank computation ===
+    // We rank by three metrics (repairs, pct, bph) across two cohorts:
+    //   - Team: techs in the same team panel as the selected tech
+    //   - Lab:  all techs across active teams, EXCLUDING Terminated and Training
+    //           (those aren't really competing in the current period)
+    // Ties use dense rank: two tied at the top are both #1, next is #2.
+    // Returns null when the cohort has 0 or 1 entries (no meaningful rank).
+    function computeRank(pool, metric) {
+      if (!pool || pool.length < 2) return null;
+      const sorted = [...pool].sort((a, b) => (b[metric] || 0) - (a[metric] || 0));
+      let lastVal = null;
+      let lastRank = 0;
+      for (let i = 0; i < sorted.length; i++) {
+        const v = sorted[i][metric] || 0;
+        if (v !== lastVal) {
+          lastRank = i + 1;
+          lastVal = v;
         }
-        if (type === 'lab') {
-          const result = await aggregateLabCustomRange(env, from, to);
-          return jsonResponse(JSON.stringify(result));
+        if (sorted[i].name === tech.name) {
+          return { rank: lastRank, total: sorted.length };
         }
-        if (type === 'coordinator' || type === 'outgoing') {
-          const result = await aggregateCoordCustomRange(env, type, from, to);
-          return jsonResponse(JSON.stringify(result));
-        }
-        return errorResponse(400, `Custom range not supported for type: ${type}`);
       }
-
-      const cached = await env.DASHBOARD_CACHE.get(config.cacheKey);
-      if (!cached) {
-        await runAggregation(env, type);
-        const fresh = await env.DASHBOARD_CACHE.get(config.cacheKey);
-        if (!fresh) return errorResponse(500, 'Cache build failed');
-        return jsonResponse(extractRange(fresh, range));
-      }
-      return jsonResponse(extractRange(cached, range));
-    } catch (err) {
-      return errorResponse(500, err.message);
-    }
-  },
-
-  async scheduled(event, env, ctx) {
-    ctx.waitUntil(Promise.all([
-      runAggregation(env, 'lab').catch(e => console.error('Lab agg failed:', e)),
-      runAggregation(env, 'coordinator').catch(e => console.error('Coord agg failed:', e)),
-      runAggregation(env, 'outgoing').catch(e => console.error('Outgoing agg failed:', e)),
-    ]));
-  },
-};
-
-async function runAggregation(env, type) {
-  const config = DASHBOARDS[type];
-  try {
-    const sheetId = env[config.sheetIdSecret];
-    const rawValues = await fetchSheet(env, sheetId, config.tab);
-
-    // For the lab aggregation, also fetch the outgoing sheet to compute kickbacks.
-    // If the outgoing sheet is unavailable (not shared yet, secret missing, sheet error),
-    // we proceed without kickback data so the lab dashboard still works.
-    let outgoingValues = null;
-    if (type === 'lab' && env.OUTGOING_SHEET_ID) {
-      try {
-        outgoingValues = await fetchSheet(env, env.OUTGOING_SHEET_ID, 'Master Outgoing');
-      } catch (e) {
-        console.error('Failed to fetch outgoing sheet for kickbacks:', e.message);
-        outgoingValues = null;
-      }
+      return null;
     }
 
-    const aggregated = type === 'lab'
-      ? config.aggregator(rawValues, outgoingValues)
-      : config.aggregator(rawValues);
-    await env.DASHBOARD_CACHE.put(config.cacheKey, JSON.stringify(aggregated), { expirationTtl: 3600 });
+    // Build the team and lab pools
+    const teamPanel = currentData.teamPanels.find(p => p.name === tech.team);
+    const teamPool = teamPanel ? teamPanel.techs : [];
 
-    // For lab, also cache the parsed raw rows so custom date range requests can
-    // skip the Sheets API call. This is what makes custom ranges fast — the heavy
-    // lifting (auth, fetch, parse) happens once per cron tick (every minute), and
-    // custom range requests just slice + compute against the cached rows.
-    if (type === 'lab') {
-      const rawCache = buildLabRawCache(rawValues, outgoingValues);
-      await env.DASHBOARD_CACHE.put('dashboard_raw', JSON.stringify(rawCache), { expirationTtl: 3600 });
-    }
-
-    // Same idea for coordinator and outgoing — stash the parsed coord-shape rows
-    // (which include shift / hour / hourDec / Title) so custom range requests
-    // don't have to re-hit the Sheets API.
-    if (type === 'coordinator') {
-      const rawCache = buildCoordRawCache(rawValues);
-      await env.DASHBOARD_CACHE.put('coordinator_raw', JSON.stringify(rawCache), { expirationTtl: 3600 });
-    }
-    if (type === 'outgoing') {
-      const rawCache = buildOutgoingRawCache(rawValues);
-      await env.DASHBOARD_CACHE.put('outgoing_raw', JSON.stringify(rawCache), { expirationTtl: 3600 });
-    }
-
-    // SUCCESS: clear failure state. If we previously alerted on this outage,
-    // send a recovery message so we know it's back to normal.
-    const prior = await readStatus(env, type);
-    const wasAlerted = prior && prior.alertSent === true;
-    await writeStatus(env, type, {
-      lastSuccess: new Date().toISOString(),
-      lastError: null,
-      consecutiveFailures: 0,
-      alertSent: false,
+    // Lab pool = every tech across non-Terminated, non-Training teams.
+    // We use teamPanels (not techScatter) so the rank uses the same
+    // current-range numbers shown elsewhere on the dashboard.
+    const labPool = [];
+    currentData.teamPanels.forEach(panel => {
+      const lower = (panel.name || '').toLowerCase().trim();
+      if (lower === 'terminated' || lower === 'training') return;
+      (panel.techs || []).forEach(t => labPool.push(t));
     });
-    if (wasAlerted) {
-      await sendChatAlert(env, {
-        kind: 'recovery',
-        type,
-        priorFailures: prior.consecutiveFailures || 0,
-      });
-    }
-  } catch (err) {
-    // FAILURE: increment counter, preserve lastSuccess, alert once on threshold.
-    // We alert when consecutiveFailures crosses from 2 → 3, then suppress further
-    // alerts until recovery so we don't get spammed every minute during an outage.
-    const prior = await readStatus(env, type);
-    const consecutiveFailures = (prior.consecutiveFailures || 0) + 1;
-    const shouldAlert = (consecutiveFailures >= 3) && !prior.alertSent;
-    await writeStatus(env, type, {
-      // lastSuccess preserved by writeStatus merge (we don't include it in the patch)
-      lastError: { message: err.message || String(err), at: new Date().toISOString() },
-      consecutiveFailures,
-      alertSent: prior.alertSent || shouldAlert,
-    });
-    if (shouldAlert) {
-      await sendChatAlert(env, {
-        kind: 'failure',
-        type,
-        consecutiveFailures,
-        message: err.message || String(err),
-        lastSuccess: prior.lastSuccess,
-      });
-    }
-    throw err; // rethrow so the cron's Promise.all logs the error as before
-  }
-}
 
-// =============================================================
-// HEALTH STATUS HELPERS
-// =============================================================
-// Each aggregator's status lives under a `<type>_status` KV key. The shape:
-//   { lastSuccess, lastError, consecutiveFailures, alertSent }
-// These keys are written without a TTL so they persist across deploys.
-
-// Read the current status object for a given dashboard type.
-// Returns a default-shape object if no status has been written yet.
-async function readStatus(env, type) {
-  const key = `${type}_status`;
-  try {
-    const raw = await env.DASHBOARD_CACHE.get(key);
-    if (raw) return JSON.parse(raw);
-  } catch (_) { /* ignore parse errors, start fresh */ }
-  return { lastSuccess: null, lastError: null, consecutiveFailures: 0, alertSent: false };
-}
-
-// Read-modify-write a status object. Only fields present in `patch` are
-// overwritten; everything else is preserved. This lets a failure preserve
-// the prior lastSuccess timestamp so the health endpoint can still show
-// "lab last succeeded 12 minutes ago" even while it's currently failing.
-async function writeStatus(env, type, patch) {
-  const key = `${type}_status`;
-  const prior = await readStatus(env, type);
-  const next = { ...prior, ...patch };
-  await env.DASHBOARD_CACHE.put(key, JSON.stringify(next)); // no TTL — persistent
-}
-
-// Post an alert to the Google Chat webhook stored in env.GCHAT_WEBHOOK.
-// info: { kind: 'failure'|'recovery', type, ... }
-// Silently skips if no webhook is configured (so dev environments don't fail).
-// Best-effort: a failed Chat post is logged but doesn't fail the cron tick.
-async function sendChatAlert(env, info) {
-  if (!env.GCHAT_WEBHOOK) {
-    console.log('[alert] GCHAT_WEBHOOK not set, skipping notification:', info.kind, info.type);
-    return;
-  }
-  const dashName = info.type === 'lab' ? 'Lab'
-                 : info.type === 'coordinator' ? 'Incoming Boards'
-                 : info.type === 'outgoing' ? 'Outgoing Boards'
-                 : info.type;
-  let text;
-  if (info.kind === 'failure') {
-    const lastGood = info.lastSuccess
-      ? `last successful aggregation: ${info.lastSuccess}`
-      : 'no prior successful aggregation on record';
-    text = `🔴 *${dashName} dashboard aggregator is failing*\n` +
-           `${info.consecutiveFailures} consecutive failed cron ticks.\n` +
-           `Latest error: \`${truncate(info.message, 300)}\`\n` +
-           `${lastGood}\n` +
-           `Cloudflare logs: https://dash.cloudflare.com/?to=/:account/workers/services/view/lab-dashboard-api/production/observability/logs`;
-  } else if (info.kind === 'recovery') {
-    text = `✅ *${dashName} dashboard aggregator recovered*\n` +
-           `Successful aggregation after ${info.priorFailures} failed ticks.`;
-  } else {
-    text = `[${info.kind}] ${JSON.stringify(info)}`;
-  }
-  try {
-    await fetch(env.GCHAT_WEBHOOK, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-  } catch (e) {
-    // Don't let an alert failure crash the aggregation pipeline. We log it
-    // and move on — the next cron tick will retry the alert if still failing.
-    console.error('Failed to post Chat alert:', e.message);
-  }
-}
-
-function truncate(s, n) {
-  if (!s) return '';
-  s = String(s);
-  return s.length <= n ? s : s.slice(0, n) + '…';
-}
-
-async function fetchSheet(env, sheetId, tab) {
-  const credentials = JSON.parse(env.GOOGLE_CREDENTIALS);
-  const accessToken = await getAccessToken(credentials);
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(tab)}`;
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (!response.ok) throw new Error(`Sheets API ${response.status}: ${await response.text()}`);
-  const data = await response.json();
-  return data.values || [];
-}
-
-function jsonResponse(body) {
-  return new Response(body, { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-}
-function errorResponse(status, message) {
-  return new Response(JSON.stringify({ error: message }), {
-    status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
-function extractRange(fullCacheJson, range) {
-  const full = JSON.parse(fullCacheJson);
-  const data = full.ranges[range] || full.ranges.today;
-  return JSON.stringify({ ...data, fetchedAt: full.fetchedAt });
-}
-
-// =============================================================
-// LAB AGGREGATION (unchanged)
-// =============================================================
-
-function aggregateLab(rawValues, outgoingValues) {
-  if (rawValues.length < 2) throw new Error('Lab sheet returned no data rows');
-  const headers = rawValues[0];
-  const idx = {
-    Date: headers.indexOf('Date'),
-    Name: headers.indexOf('Name'),
-    Outcome: headers.indexOf('Outcome'),
-    ErrorType: headers.indexOf('Error Type'),
-    SerialNumber: headers.indexOf('Serial Number'),
-    Level: headers.indexOf('Level'),
-    Team: headers.indexOf('Team'),
-    Timestamp: headers.indexOf('Start Time'),
-    TypeOfRepair: headers.indexOf('Type of Repair'),
-  };
-
-  // Precompute the lowercased exclusion set for fast lookup
-  const excludedTypes = new Set(EXCLUDED_LAB_TYPES.map(s => s.toLowerCase().trim()));
-
-  const allRows = [];
-  let excludedCount = 0;
-  for (let i = 1; i < rawValues.length; i++) {
-    const r = rawValues[i];
-    const ts = parseDate(r[idx.Date]);
-    if (ts === null) continue;
-
-    // Skip excluded repair types (e.g. PSU, CB) when the column is present.
-    // If the column is missing entirely (idx === -1), no filtering happens —
-    // the lab dashboard keeps working as before.
-    if (idx.TypeOfRepair >= 0) {
-      const tor = (r[idx.TypeOfRepair] || '').toString().toLowerCase().trim();
-      if (excludedTypes.has(tor)) {
-        excludedCount++;
-        continue;
-      }
+    // Render a single rank cell. Adds a color class hinting "top tier" / "mid" /
+    // "bottom" based on the percentile of the rank.
+    function rankCellHTML(rankObj) {
+      if (!rankObj) return '<td class="rank-na">—</td>';
+      const { rank, total } = rankObj;
+      const pctile = (rank - 1) / total; // 0 = best, 1 = worst
+      let cls;
+      if (pctile < 0.25) cls = 'rank-top';
+      else if (pctile < 0.5) cls = 'rank-mid';
+      else if (pctile < 0.75) cls = 'rank-low';
+      else cls = 'rank-bottom';
+      return '<td class="' + cls + '">#' + rank + ' of ' + total + '</td>';
     }
 
-    const hourDec = idx.Timestamp >= 0 ? parseHourDecimal(r[idx.Timestamp]) : null;
-    allRows.push({
-      ts, Date: r[idx.Date], Name: r[idx.Name] || 'Unknown',
-      Outcome: r[idx.Outcome] || '', ErrorType: r[idx.ErrorType] || '',
-      SerialNumber: r[idx.SerialNumber] || '', Level: r[idx.Level] || '',
-      Team: r[idx.Team] || '', hourDec,
-    });
+    // Special-case: if the tech is from Terminated or Training (and so isn't
+    // in the lab pool), or if their team has just them, we still want to be
+    // honest about what we can show.
+    const teamRankRepairs = computeRank(teamPool, 'repairs');
+    const teamRankPct     = computeRank(teamPool, 'pct');
+    const teamRankBph     = computeRank(teamPool, 'bph');
+    const labRankRepairs  = computeRank(labPool,  'repairs');
+    const labRankPct      = computeRank(labPool,  'pct');
+    const labRankBph      = computeRank(labPool,  'bph');
+
+    const rankTableHTML =
+      '<div class="tech-detail-rank">' +
+        '<div class="tech-detail-rank-title">Rank Breakdown</div>' +
+        '<table class="tech-detail-rank-table">' +
+          '<thead><tr>' +
+            '<th></th>' +
+            '<th>In Team</th>' +
+            '<th>In Lab</th>' +
+          '</tr></thead>' +
+          '<tbody>' +
+            '<tr>' +
+              '<td>Repairs</td>' +
+              rankCellHTML(teamRankRepairs) +
+              rankCellHTML(labRankRepairs) +
+            '</tr>' +
+            '<tr>' +
+              '<td>Repair %</td>' +
+              rankCellHTML(teamRankPct) +
+              rankCellHTML(labRankPct) +
+            '</tr>' +
+            '<tr>' +
+              '<td>BPH</td>' +
+              rankCellHTML(teamRankBph) +
+              rankCellHTML(labRankBph) +
+            '</tr>' +
+          '</tbody>' +
+        '</table>' +
+      '</div>';
+
+    const kbValue = kickbacks === 0
+      ? '<div class="tech-detail-stat-num muted-zero">0</div>'
+      : '<div class="tech-detail-stat-num kickback">' + kickbacks + '</div>';
+    const kbSub = kickbacks === 0
+      ? ''
+      : '<div class="tech-detail-stat-label" style="margin-top:4px; color: var(--' + kbCls + ');">' + fmtRate(kbRate) + '% rate</div>';
+
+    return '<div class="tech-detail-card">' +
+      '<div class="tech-detail-head">' +
+        '<div>' +
+          '<div class="tech-detail-name">' + esc(tech.name) + '</div>' +
+          '<div class="tech-detail-sub">' +
+            (tech.level ? '<strong>' + esc(tech.level) + '</strong> · ' : '') +
+            'Team: <strong>' + esc(tech.team) + '</strong> · ' +
+            tech.techDays + ' day' + (tech.techDays === 1 ? '' : 's') + ' active' +
+          '</div>' +
+        '</div>' +
+        rankTableHTML +
+      '</div>' +
+      '<div class="tech-detail-metrics">' +
+        '<div>' +
+          '<div class="tech-detail-block-label">Repair %</div>' +
+          '<div class="tech-detail-block-value ' + pCls + '">' + tech.pct + '%</div>' +
+          '<div class="tech-detail-block-sub">' + tech.repairs + ' of ' + (tech.touches - tech.falseAsics) + ' repairable</div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="tech-detail-block-label">Boards / Hour</div>' +
+          '<div class="tech-detail-block-value ' + bCls + '">' + fmtBPH(tech.bph) + '</div>' +
+          '<div class="tech-detail-block-sub">Across ' + tech.techDays + ' day' + (tech.techDays === 1 ? '' : 's') + '</div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="tech-detail-block-label">Total Touches</div>' +
+          '<div class="tech-detail-block-value">' + tech.touches.toLocaleString() + '</div>' +
+          '<div class="tech-detail-block-sub">' + tech.repairs + ' repairs · ' + tech.falseAsics + ' false ASICs</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="tech-detail-stats">' +
+        '<div>' +
+          '<div class="tech-detail-stat-label">Touches</div>' +
+          '<div class="tech-detail-stat-num">' + tech.touches + '</div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="tech-detail-stat-label">Repairs</div>' +
+          '<div class="tech-detail-stat-num">' + tech.repairs + '</div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="tech-detail-stat-label">False ASICs</div>' +
+          '<div class="tech-detail-stat-num false-asic">' + tech.falseAsics + '</div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="tech-detail-stat-label">Give-Ups</div>' +
+          '<div class="tech-detail-stat-num giveup">' + tech.giveups + '</div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="tech-detail-stat-label">Graveyards</div>' +
+          '<div class="tech-detail-stat-num grave">' + tech.graveyards + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="tech-detail-stats" style="margin-top: 16px; border-top: none; padding-top: 0;">' +
+        '<div>' +
+          '<div class="tech-detail-stat-label">Kickbacks</div>' +
+          kbValue +
+          kbSub +
+        '</div>' +
+        '<div></div><div></div><div></div><div></div>' +
+      '</div>' +
+    '</div>';
   }
 
-  // One-line log so cron logs show how many rows are being excluded — useful
-  // if numbers ever look unexpectedly low and you need to confirm filtering.
-  if (excludedCount > 0) {
-    console.log(`Lab aggregator: excluded ${excludedCount} rows with Type of Repair in [${EXCLUDED_LAB_TYPES.join(', ')}]`);
-  }
+  // Render the dashboard when filtered to a single tech
+  function renderTechFiltered(tech) {
+    const lab = currentData.summary;
 
-  // Parse kickback rows from the outgoing sheet (if available)
-  // A "kickback" = row where Repaired === FALSE AND Kickback column has a non-empty name.
-  // We track each kickback's date (so we can filter by range) and the lab tech name responsible.
-  const kickbackRows = parseKickbacks(outgoingValues);
+    // KPI strip — switch labels and values to the tech's data
+    document.getElementById("s-repairs-label").textContent = "Repairs";
+    document.getElementById("s-touches-label").textContent = "Touches";
+    document.getElementById("s-unique-label").textContent = "Repairable";
 
-  const aggregated = { fetchedAt: new Date().toISOString(), ranges: {} };
-  for (const range of RANGES) {
-    const cutoff = getCutoffMs(range);
-    const filtered = cutoff === null ? allRows : allRows.filter(r => r.ts >= cutoff);
-    const filteredKickbacks = cutoff === null ? kickbackRows : kickbackRows.filter(k => k.ts >= cutoff);
-    aggregated.ranges[range] = computeLabAggregates(filtered, range, filteredKickbacks);
-  }
-  return aggregated;
-}
+    const repairsEl = document.getElementById("s-repairs");
+    repairsEl.textContent = tech.repairs.toLocaleString();
+    repairsEl.className = "kpi-value " + pctClass(tech.pct);
+    const pctBar = document.getElementById("s-pct-bar");
+    pctBar.style.width = Math.min(100, tech.pct) + "%";
+    pctBar.className = "kpi-progress-fill " + pctClass(tech.pct);
+    document.getElementById("s-pct-sub").innerHTML =
+      '<span style="color: var(--' + pctClass(tech.pct) + '); font-weight: 600;">' + tech.pct + '%</span>' +
+      ' repair rate';
 
-function parseKickbacks(outgoingValues) {
-  if (!outgoingValues || outgoingValues.length < 2) return [];
-  const headers = outgoingValues[0];
-  const idx = {
-    Date: headers.indexOf('Date'),
-    Repaired: headers.indexOf('Repaired'),
-    Kickback: headers.indexOf('Kickback'),
-  };
-  if (idx.Date < 0 || idx.Repaired < 0 || idx.Kickback < 0) {
-    console.error('Outgoing sheet missing expected column. Headers:', headers);
-    return [];
-  }
-  const result = [];
-  for (let i = 1; i < outgoingValues.length; i++) {
-    const r = outgoingValues[i];
-    const repaired = (r[idx.Repaired] || '').toString().trim().toLowerCase();
-    if (repaired !== 'false') continue;
-    const kickbackName = (r[idx.Kickback] || '').toString().trim();
-    if (!kickbackName) continue;
-    const ts = parseDate(r[idx.Date]);
-    if (ts === null) continue;
-    result.push({ ts, name: kickbackName });
-  }
-  return result;
-}
+    const bphEl = document.getElementById("s-bph");
+    bphEl.textContent = fmtBPH(tech.bph);
+    bphEl.className = "kpi-value " + bphClass(tech.bph);
+    const bphBar = document.getElementById("s-bph-bar");
+    bphBar.style.width = Math.min(100, (tech.bph / 5) * 100) + "%";
+    bphBar.className = "kpi-progress-fill " + bphClass(tech.bph);
+    document.getElementById("s-bph-sub").textContent =
+      "Across " + tech.techDays + " day" + (tech.techDays === 1 ? "" : "s");
 
-function computeLabAggregates(rows, range, kickbackRows, useLiveToday) {
-  if (useLiveToday === undefined) useLiveToday = true; // default preserves existing behavior
-  const isToday = (range === 'today') && useLiveToday;
-  const touches = rows.length;
-  const uniqueSerials = new Set();
-  let allRepaired = 0, falseAsics = 0, giveups = 0, graveyards = 0;
-  rows.forEach(r => {
-    if (r.SerialNumber) uniqueSerials.add(r.SerialNumber);
-    if (r.Outcome === 'Repaired') {
-      allRepaired++;
-      if ((r.ErrorType || '').toLowerCase().trim() === 'false asic') falseAsics++;
-    } else if (r.Outcome === 'Give Up') giveups++;
-    else if (r.Outcome === 'Graveyard') graveyards++;
-  });
-  const repairs = allRepaired - falseAsics;
-  const repairable = touches - falseAsics;
-  const labPct = repairable > 0 ? Math.round((repairs / repairable) * 100) : 0;
+    document.getElementById("s-touches").textContent = tech.touches.toLocaleString();
+    document.getElementById("s-touches-sub").textContent = tech.team;
 
-  // Build kickback counts per tech name (and total) for this range
-  const kickbacks = kickbackRows || [];
-  const kickbackByTech = {};
-  kickbacks.forEach(k => {
-    kickbackByTech[k.name] = (kickbackByTech[k.name] || 0) + 1;
-  });
-  const totalKickbacks = kickbacks.length;
-  const kickbackRate = repairs > 0 ? Math.round((totalKickbacks / repairs) * 1000) / 10 : 0; // 1 decimal place
+    const repairable = tech.touches - tech.falseAsics;
+    document.getElementById("s-unique").textContent = repairable.toLocaleString();
+    const repPct = tech.touches > 0 ? Math.round((repairable / tech.touches) * 100) : 0;
+    const uniqueBar = document.getElementById("s-unique-bar");
+    if (uniqueBar) uniqueBar.style.width = repPct + "%";
+    document.getElementById("s-unique-sub").textContent = repPct + "% of touches (excl. false ASICs)";
 
-  // Build per-tech-day map. For Today, also track each tech's earliest hourDec.
-  const labDayKeys = new Set();
-  const techFirstHourToday = {}; // techName -> earliest hourDec today (only used when isToday)
-  rows.forEach(r => {
-    const dk = dayKeyFromTs(r.ts);
-    if (dk) labDayKeys.add(`${r.Name}|${dk}`);
-    if (isToday && r.hourDec !== null && r.hourDec !== undefined) {
-      const cur = techFirstHourToday[r.Name];
-      if (cur === undefined || r.hourDec < cur) techFirstHourToday[r.Name] = r.hourDec;
-    }
-  });
-  const labTechDays = labDayKeys.size;
+    // Kickbacks
+    const kickbacks = tech.kickbacks || 0;
+    const kbRate = tech.kickbackRate || 0;
+    const kbCls = kbRateClass(kbRate, kickbacks);
+    const kbEl = document.getElementById("s-kickbacks");
+    kbEl.textContent = kickbacks.toLocaleString();
+    kbEl.className = "kpi-value " + kbCls;
+    const kbBar = document.getElementById("s-kickback-bar");
+    kbBar.style.width = Math.min(100, kbRate * 2) + "%";
+    kbBar.className = "kpi-progress-fill " + kbCls;
+    document.getElementById("s-kickback-sub").innerHTML =
+      kickbacks === 0
+        ? '<span style="color: var(--green); font-weight: 600;">No kickbacks</span>'
+        : '<span style="color: var(--' + kbCls + '); font-weight: 600;">' + fmtRate(kbRate) + '%</span> rate · vs ' + tech.repairs + ' repairs';
 
-  // Compute lab-wide hours-denominator
-  let labHours;
-  if (isToday) {
-    // Sum elapsed hours per tech who has logged today
-    labHours = 0;
-    Object.keys(techFirstHourToday).forEach(name => {
-      labHours += getLabElapsedHoursToday(techFirstHourToday[name]);
-    });
-    if (labHours === 0) labHours = labTechDays * HOURS_PER_DAY; // fallback
-  } else {
-    labHours = labTechDays * HOURS_PER_DAY;
-  }
-  const labBph = labHours > 0 ? repairs / labHours : 0;
-
-  const teamMap = {};
-  rows.forEach(r => {
-    let team = r.Team;
-    if (!team) return;
-    if (team.toLowerCase().trim() === 'qa lab') team = 'Training';
-    if (!teamMap[team]) teamMap[team] = {};
-    if (!teamMap[team][r.Name]) teamMap[team][r.Name] = { rows: [], level: r.Level };
-    teamMap[team][r.Name].rows.push(r);
-  });
-
-  const teams = Object.keys(teamMap).sort((a, b) => {
-    const aTerm = a.toLowerCase() === 'terminated';
-    const bTerm = b.toLowerCase() === 'terminated';
-    if (aTerm && !bTerm) return 1;
-    if (!aTerm && bTerm) return -1;
-    const na = parseInt(a.replace(/\D/g, ''), 10);
-    const nb = parseInt(b.replace(/\D/g, ''), 10);
-    if (!isNaN(na) && !isNaN(nb)) return na - nb;
-    return a.localeCompare(b);
-  });
-
-  const teamSummaries = [];
-  const teamPanels = [];
-  const techScatter = [];
-
-  teams.forEach(team => {
-    const techMap = teamMap[team];
-    const techNames = Object.keys(techMap);
-    const teamRows = techNames.flatMap(n => techMap[n].rows);
-
-    let tAllRep = 0, tFalseA = 0, tGiveups = 0, tGrave = 0;
-    teamRows.forEach(r => {
-      if (r.Outcome === 'Repaired') {
-        tAllRep++;
-        if ((r.ErrorType || '').toLowerCase().trim() === 'false asic') tFalseA++;
-      } else if (r.Outcome === 'Give Up') tGiveups++;
-      else if (r.Outcome === 'Graveyard') tGrave++;
-    });
-    const tRepairs = tAllRep - tFalseA;
-    const tRepairable = teamRows.length - tFalseA;
-    const tPct = tRepairable > 0 ? Math.round((tRepairs / tRepairable) * 100) : 0;
-
-    const teamDayKeys = new Set();
-    teamRows.forEach(r => {
-      const dk = dayKeyFromTs(r.ts);
-      if (dk) teamDayKeys.add(`${r.Name}|${dk}`);
-    });
-    const tTechDays = teamDayKeys.size;
-
-    // Team hours: sum each team-tech's elapsed hours today, or use tTechDays * 8 for other ranges
-    let teamHours;
-    if (isToday) {
-      teamHours = 0;
-      techNames.forEach(name => {
-        if (techFirstHourToday[name] !== undefined) {
-          teamHours += getLabElapsedHoursToday(techFirstHourToday[name]);
-        }
-      });
-      if (teamHours === 0) teamHours = tTechDays * HOURS_PER_DAY;
+    // Outcomes
+    document.getElementById("s-false").textContent = tech.falseAsics.toLocaleString();
+    document.getElementById("s-giveups").textContent = tech.giveups.toLocaleString();
+    document.getElementById("s-grave").textContent = tech.graveyards.toLocaleString();
+    const outTotal = tech.falseAsics + tech.giveups + tech.graveyards;
+    const outBar = document.getElementById("s-outcome-bar");
+    if (outTotal > 0) {
+      const fp = (tech.falseAsics / outTotal) * 100;
+      const gp = (tech.giveups / outTotal) * 100;
+      const gvp = (tech.graveyards / outTotal) * 100;
+      outBar.innerHTML =
+        '<div class="outcome-bar-false" style="width:' + fp + '%;"></div>' +
+        '<div class="outcome-bar-giveup" style="width:' + gp + '%;"></div>' +
+        '<div class="outcome-bar-grave" style="width:' + gvp + '%;"></div>';
     } else {
-      teamHours = tTechDays * HOURS_PER_DAY;
+      outBar.innerHTML = '';
     }
-    const tBph = teamHours > 0 ? tRepairs / teamHours : 0;
 
-    // Sum kickbacks for techs on this team
-    let teamKickbacks = 0;
-    techNames.forEach(name => {
-      teamKickbacks += kickbackByTech[name] || 0;
-    });
-    const teamKickbackRate = tRepairs > 0 ? Math.round((teamKickbacks / tRepairs) * 1000) / 10 : 0;
+    // Trend chart — use the per-tech trend if available, fall back to lab trend
+    const techTrend = tech.trend || currentData.trend;
+    renderTrendChart(techTrend, !!tech.trend);
 
-    teamSummaries.push({
-      name: team, pct: tPct, bph: round2(tBph), techCount: techNames.length,
-      touches: teamRows.length, repairs: tRepairs, falseAsics: tFalseA,
-      giveups: tGiveups, graveyards: tGrave,
-      kickbacks: teamKickbacks, kickbackRate: teamKickbackRate,
-    });
+    // Teams chart — highlight the tech's team
+    document.getElementById("teamsChartMeta").textContent = tech.team + ' highlighted';
+    renderTeamsChart(currentData.teamSummaries, tech.team);
 
-    const techCards = techNames.map(name => {
-      const tRows = techMap[name].rows;
-      const tLevel = techMap[name].level;
-      let allRep = 0, fA = 0, gu = 0, gv = 0;
-      tRows.forEach(r => {
-        if (r.Outcome === 'Repaired') {
-          allRep++;
-          if ((r.ErrorType || '').toLowerCase().trim() === 'false asic') fA++;
-        } else if (r.Outcome === 'Give Up') gu++;
-        else if (r.Outcome === 'Graveyard') gv++;
-      });
-      const tReps = allRep - fA;
-      const tRepable = tRows.length - fA;
-      const tcPct = tRepable > 0 ? Math.round((tReps / tRepable) * 100) : 0;
-      const techDayKeys = new Set();
-      tRows.forEach(r => {
-        const dk = dayKeyFromTs(r.ts);
-        if (dk) techDayKeys.add(dk);
-      });
-      const tcTechDays = techDayKeys.size;
-      // Per-tech hours: today uses elapsed since their first board; else flat 8 per day
-      let techHours;
-      if (isToday && techFirstHourToday[name] !== undefined) {
-        techHours = getLabElapsedHoursToday(techFirstHourToday[name]);
-      } else {
-        techHours = tcTechDays * HOURS_PER_DAY;
-      }
-      const tcBph = techHours > 0 ? tReps / techHours : 0;
-      if (tRows.length >= 1) {
-        techScatter.push({ x: round2(tcBph), y: tcPct, name, level: tLevel, team });
-      }
-      // Kickbacks for this tech
-      const tKickbacks = kickbackByTech[name] || 0;
-      const tKickbackRate = tReps > 0 ? Math.round((tKickbacks / tReps) * 1000) / 10 : 0;
-      return {
-        name, level: tLevel, touches: tRows.length, repairs: tReps,
-        falseAsics: fA, giveups: gu, graveyards: gv,
-        pct: tcPct, bph: round2(tcBph), techDays: tcTechDays,
-        kickbacks: tKickbacks, kickbackRate: tKickbackRate,
-        trend: computeTechTrend(tRows, range, useLiveToday),
-      };
-    });
-    techCards.sort((a, b) => b.repairs !== a.repairs ? b.repairs - a.repairs : b.pct - a.pct);
-    teamPanels.push({
-      name: team, techCount: techNames.length, touches: teamRows.length,
-      pct: tPct, bph: round2(tBph), techs: techCards,
-      kickbacks: teamKickbacks, kickbackRate: teamKickbackRate,
-    });
-  });
+    // Scatter — highlight the tech's dot
+    document.getElementById("scatterChartMeta").textContent = "Highlighting " + tech.name;
+    renderScatterChart(currentData.techScatter, tech.name);
 
-  const trend = computeLabTrend(rows, range, useLiveToday);
+    // Replace team panels area with a single detail card for this tech
+    const stage = document.getElementById("teamStage");
+    stage.innerHTML = buildTechDetailCard(tech);
 
-  return {
-    summary: {
-      touches, unique: uniqueSerials.size, repairs, falseAsics,
-      giveups, graveyards, pct: labPct, bph: round2(labBph),
-      techDays: labTechDays, repairable,
-      kickbacks: totalKickbacks, kickbackRate,
-    },
-    teamSummaries, teamPanels, techScatter, trend,
-  };
-}
+    // Update banner
+    document.getElementById("techBanner").classList.add("show");
+    document.getElementById("techBannerName").textContent = tech.name;
+    document.getElementById("techBannerMeta").innerHTML =
+      (tech.level ? '<strong>' + esc(tech.level) + '</strong> · ' : '') +
+      'Team: <strong>' + esc(tech.team) + '</strong>';
 
-function computeLabTrend(rows, range, useLiveToday) {
-  if (useLiveToday === undefined) useLiveToday = true; // default preserves existing behavior
-  const bucket = getTrendBucketForRange(range);
-  const byBucket = {};
-  rows.forEach(r => {
-    const k = bucketKeyFromTs(r.ts, bucket);
-    if (!k) return;
-    if (!byBucket[k]) byBucket[k] = [];
-    byBucket[k].push(r);
-  });
-  const sortedKeys = Object.keys(byBucket).sort();
-  const limit = getTrendLimit(bucket);
-  const limited = sortedKeys.slice(-limit);
+    // Body class to hide team strip and section divider
+    document.body.classList.add("tech-filtered");
+  }
 
-  // Pre-compute "today's bucket key" (day-bucket only — for week/month, today's bucket
-  // is mostly historical so flat-hours is fine).
-  const estNow = getEstNow();
-  const todayDayKey = `${estNow.year}-${String(estNow.month).padStart(2,'0')}-${String(estNow.day).padStart(2,'0')}`;
+  // Render the dashboard in normal (lab-wide) mode
+  function renderLabWide() {
+    const lab = currentData.summary;
 
-  const trend = { labels: [], pcts: [], bphs: [] };
-  limited.forEach(k => {
-    const bucketRows = byBucket[k];
-    let allRep = 0, fA = 0;
-    bucketRows.forEach(r => {
-      if (r.Outcome === 'Repaired') {
-        allRep++;
-        if ((r.ErrorType || '').toLowerCase().trim() === 'false asic') fA++;
-      }
-    });
-    const reps = allRep - fA;
-    const repable = bucketRows.length - fA;
-    const pct = repable > 0 ? Math.round((reps / repable) * 100) : 0;
+    // Restore default labels
+    document.getElementById("s-repairs-label").textContent = "Total Repairs";
+    document.getElementById("s-touches-label").textContent = "Total Touches";
+    document.getElementById("s-unique-label").textContent = "Unique Touches";
 
-    // Compute hours denominator.
-    // If this bucket is today (day-bucket only), use sum of elapsed hours per tech.
-    // Otherwise flat tech-days * 8.
-    let hoursDenom;
-    if (useLiveToday && bucket === 'day' && k === todayDayKey) {
-      const techFirstHour = {};
-      bucketRows.forEach(r => {
-        if (r.hourDec !== null && r.hourDec !== undefined) {
-          const cur = techFirstHour[r.Name];
-          if (cur === undefined || r.hourDec < cur) techFirstHour[r.Name] = r.hourDec;
-        }
-      });
-      hoursDenom = 0;
-      Object.keys(techFirstHour).forEach(name => {
-        hoursDenom += getLabElapsedHoursToday(techFirstHour[name]);
-      });
-      // Fallback if no Timestamp data
-      if (hoursDenom === 0) {
-        const techDayKeys = new Set();
-        bucketRows.forEach(r => {
-          const dk = dayKeyFromTs(r.ts);
-          if (dk) techDayKeys.add(`${r.Name}|${dk}`);
-        });
-        hoursDenom = techDayKeys.size * HOURS_PER_DAY;
-      }
+    const repairsEl = document.getElementById("s-repairs");
+    repairsEl.textContent = lab.repairs.toLocaleString();
+    repairsEl.className = "kpi-value " + pctClass(lab.pct);
+    const pctBar = document.getElementById("s-pct-bar");
+    pctBar.style.width = Math.min(100, lab.pct) + "%";
+    pctBar.className = "kpi-progress-fill " + pctClass(lab.pct);
+    document.getElementById("s-pct-sub").innerHTML =
+      '<span style="color: var(--' + pctClass(lab.pct) + '); font-weight: 600;">' + lab.pct + '%</span>' +
+      ' · ' + lab.repairable.toLocaleString() + ' repairable';
+
+    const bphEl = document.getElementById("s-bph");
+    bphEl.textContent = fmtBPH(lab.bph);
+    bphEl.className = "kpi-value " + bphClass(lab.bph);
+    const bphBar = document.getElementById("s-bph-bar");
+    bphBar.style.width = Math.min(100, (lab.bph / 5) * 100) + "%";
+    bphBar.className = "kpi-progress-fill " + bphClass(lab.bph);
+    document.getElementById("s-bph-sub").textContent =
+      "Across " + lab.techDays + " tech-day" + (lab.techDays === 1 ? "" : "s");
+
+    document.getElementById("s-touches").textContent = lab.touches.toLocaleString();
+    document.getElementById("s-touches-sub").textContent = "All lab activity";
+
+    document.getElementById("s-unique").textContent = lab.unique.toLocaleString();
+    const uniquePct = lab.touches > 0 ? Math.round((lab.unique / lab.touches) * 100) : 0;
+    const uniqueBar = document.getElementById("s-unique-bar");
+    if (uniqueBar) uniqueBar.style.width = uniquePct + "%";
+    document.getElementById("s-unique-sub").textContent = uniquePct + "% of total touches";
+
+    const kickbacks = lab.kickbacks || 0;
+    const kbRate = lab.kickbackRate || 0;
+    const kbCls = kbRateClass(kbRate, kickbacks);
+    const kbEl = document.getElementById("s-kickbacks");
+    kbEl.textContent = kickbacks.toLocaleString();
+    kbEl.className = "kpi-value " + kbCls;
+    const kbBar = document.getElementById("s-kickback-bar");
+    kbBar.style.width = Math.min(100, kbRate * 2) + "%";
+    kbBar.className = "kpi-progress-fill " + kbCls;
+    document.getElementById("s-kickback-sub").innerHTML =
+      kickbacks === 0
+        ? '<span style="color: var(--green); font-weight: 600;">None today</span>'
+        : '<span style="color: var(--' + kbCls + '); font-weight: 600;">' + fmtRate(kbRate) + '%</span> rate · vs ' + lab.repairs.toLocaleString() + ' repairs';
+
+    document.getElementById("s-false").textContent = lab.falseAsics.toLocaleString();
+    document.getElementById("s-giveups").textContent = lab.giveups.toLocaleString();
+    document.getElementById("s-grave").textContent = lab.graveyards.toLocaleString();
+    const outcomeTotal = lab.falseAsics + lab.giveups + lab.graveyards;
+    const outBar = document.getElementById("s-outcome-bar");
+    if (outcomeTotal > 0) {
+      const fpct = (lab.falseAsics / outcomeTotal) * 100;
+      const gpct = (lab.giveups / outcomeTotal) * 100;
+      const grpct = (lab.graveyards / outcomeTotal) * 100;
+      outBar.innerHTML =
+        '<div class="outcome-bar-false" style="width:' + fpct + '%;"></div>' +
+        '<div class="outcome-bar-giveup" style="width:' + gpct + '%;"></div>' +
+        '<div class="outcome-bar-grave" style="width:' + grpct + '%;"></div>';
     } else {
-      const techDayKeys = new Set();
-      bucketRows.forEach(r => {
-        const dk = dayKeyFromTs(r.ts);
-        if (dk) techDayKeys.add(`${r.Name}|${dk}`);
-      });
-      hoursDenom = techDayKeys.size * HOURS_PER_DAY;
+      outBar.innerHTML = '';
     }
 
-    const bph = hoursDenom > 0 ? reps / hoursDenom : 0;
-    trend.labels.push(bucketLabelFromKey(k, bucket));
-    trend.pcts.push(pct);
-    trend.bphs.push(round2(bph));
-  });
-  return trend;
-}
+    document.getElementById("teamsChartMeta").textContent = "Sorted by Repair %";
+    document.getElementById("scatterChartMeta").textContent = "Each dot = one tech";
 
-// Compute a trend series for a single tech, with the same bucket
-// granularity and "today uses live elapsed hours" semantics as the
-// lab-wide trend. Returns { labels, pcts, bphs } — same shape as
-// computeLabTrend's return value. Called once per tech inside
-// computeLabAggregates so each tech card carries its own trend.
-function computeTechTrend(techRows, range, useLiveToday) {
-  if (useLiveToday === undefined) useLiveToday = true;
-  const bucket = getTrendBucketForRange(range);
-  const byBucket = {};
-  techRows.forEach(r => {
-    const k = bucketKeyFromTs(r.ts, bucket);
-    if (!k) return;
-    if (!byBucket[k]) byBucket[k] = [];
-    byBucket[k].push(r);
-  });
-  const sortedKeys = Object.keys(byBucket).sort();
-  const limit = getTrendLimit(bucket);
-  const limited = sortedKeys.slice(-limit);
+    renderTrendChart(currentData.trend, false);
+    renderTeamsChart(currentData.teamSummaries, null);
+    renderScatterChart(currentData.techScatter, null);
 
-  // Today's day-bucket key (only used when bucket === 'day' and useLiveToday)
-  const estNow = getEstNow();
-  const todayDayKey = `${estNow.year}-${String(estNow.month).padStart(2,'0')}-${String(estNow.day).padStart(2,'0')}`;
-
-  const trend = { labels: [], pcts: [], bphs: [] };
-  limited.forEach(k => {
-    const bucketRows = byBucket[k];
-    let allRep = 0, fA = 0;
-    bucketRows.forEach(r => {
-      if (r.Outcome === 'Repaired') {
-        allRep++;
-        if ((r.ErrorType || '').toLowerCase().trim() === 'false asic') fA++;
-      }
+    // Team strip — Overview (0), All Techs (1), then teams (2+)
+    teams = currentData.teamPanels.map(t => t.name);
+    const stripEl = document.getElementById("teamStrip");
+    let stripHTML = '<button class="team-pill' + (currentTeam === 0 ? " active" : "") + '" onclick="goToTeam(0)">Overview</button>';
+    stripHTML += '<button class="team-pill' + (currentTeam === 1 ? " active" : "") + '" onclick="goToTeam(1)">All Techs</button>';
+    teams.forEach((t, i) => {
+      const idx = i + 2;
+      stripHTML += '<button class="team-pill' + (idx === currentTeam ? " active" : "") + '" onclick="goToTeam(' + idx + ')">' + esc(t) + '</button>';
     });
-    const reps = allRep - fA;
-    const repable = bucketRows.length - fA;
-    const pct = repable > 0 ? Math.round((reps / repable) * 100) : 0;
+    stripEl.innerHTML = stripHTML;
 
-    // Hours denominator. For a SINGLE tech, today's bucket uses elapsed
-    // hours since their first board today; other buckets use the count
-    // of distinct days they worked × HOURS_PER_DAY.
-    let hoursDenom;
-    if (useLiveToday && bucket === 'day' && k === todayDayKey) {
-      let firstHour;
-      bucketRows.forEach(r => {
-        if (r.hourDec !== null && r.hourDec !== undefined) {
-          if (firstHour === undefined || r.hourDec < firstHour) firstHour = r.hourDec;
-        }
-      });
-      hoursDenom = firstHour !== undefined
-        ? getLabElapsedHoursToday(firstHour)
-        : HOURS_PER_DAY;
-    } else {
-      const techDayKeys = new Set();
-      bucketRows.forEach(r => {
-        const dk = dayKeyFromTs(r.ts);
-        if (dk) techDayKeys.add(dk);
-      });
-      hoursDenom = techDayKeys.size * HOURS_PER_DAY;
-    }
+    const stage = document.getElementById("teamStage");
+    stage.innerHTML = "";
 
-    const bph = hoursDenom > 0 ? reps / hoursDenom : 0;
-    trend.labels.push(bucketLabelFromKey(k, bucket));
-    trend.pcts.push(pct);
-    trend.bphs.push(round2(bph));
-  });
-  return trend;
-}
+    // Overview panel
+    const overviewPanel = document.createElement("div");
+    overviewPanel.className = "team-panel" + (currentTeam === 0 ? " active" : "");
+    overviewPanel.id = "team-0";
+    const tableRows = currentData.teamSummaries.map(t => {
+      const tKickbacks = t.kickbacks || 0;
+      const tKbRate = t.kickbackRate || 0;
+      const tKbCls = kbRateClass(tKbRate, tKickbacks);
+      const kbDisplay = tKickbacks === 0
+        ? '<span class="kb-cell muted">0</span>'
+        : '<span class="kb-cell ' + tKbCls + '">' + tKickbacks + ' · ' + fmtRate(tKbRate) + '%</span>';
+      return '<tr>' +
+        '<td class="team-name-cell">' + esc(t.name) + '</td>' +
+        '<td>' + t.techCount + '</td>' +
+        '<td>' + t.touches.toLocaleString() + '</td>' +
+        '<td>' + t.repairs.toLocaleString() + '</td>' +
+        '<td>' + t.falseAsics + '</td>' +
+        '<td>' + t.giveups + '</td>' +
+        '<td>' + t.graveyards + '</td>' +
+        '<td>' + kbDisplay + '</td>' +
+        '<td class="pct-cell ' + pctClass(t.pct) + '">' + t.pct + '%</td>' +
+        '<td class="bph-cell ' + bphClass(t.bph) + '">' + fmtBPH(t.bph) + '</td>' +
+      '</tr>';
+    }).join("");
+    overviewPanel.innerHTML =
+      '<div class="overview-table-wrap">' +
+      '<table class="teams-table"><thead><tr>' +
+      '<th>Team</th><th>Techs</th><th>Touches</th><th>Repairs</th>' +
+      '<th>False ASICs</th><th>Give-Ups</th><th>Graveyards</th><th>Kickbacks</th><th>Repair %</th><th>BPH</th>' +
+      '</tr></thead><tbody>' + tableRows + '</tbody></table>' +
+      '</div>';
+    stage.appendChild(overviewPanel);
 
-// =============================================================
-// LAB CUSTOM DATE RANGE SUPPORT
-// =============================================================
-// The lab dashboard supports a custom date range filter (?from=...&to=...).
-// Pre-aggregating every possible (from,to) pair would explode KV storage, so
-// instead we cache the parsed raw rows once per cron tick and compute the
-// aggregation on demand for custom ranges.
+    // All Techs panel
+    const allTechsPanel = document.createElement("div");
+    allTechsPanel.className = "team-panel" + (currentTeam === 1 ? " active" : "");
+    allTechsPanel.id = "team-1";
+    allTechsPanel.innerHTML = renderAllTechsPanel();
+    stage.appendChild(allTechsPanel);
 
-// Validates a YYYY-MM-DD date string. Permissive on purpose — we just need to
-// be sure it parses safely and isn't a code injection vector.
-function isValidDateString(s) {
-  if (!s || typeof s !== 'string') return false;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-  const [y, m, d] = s.split('-').map(Number);
-  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
-  const dt = new Date(y, m - 1, d);
-  return !isNaN(dt.getTime()) && dt.getFullYear() === y;
-}
+    // Per-team panels
+    currentData.teamPanels.forEach((panelData, idx) => {
+      const panelIdx = idx + 2;
+      const cardsHTML = panelData.techs.map(s => {
+        const pCls = pctClass(s.pct);
+        const bCls = bphClass(s.bph);
+        const subParts = [];
+        if (s.level) subParts.push(esc(s.level));
+        subParts.push(s.techDays + " day" + (s.techDays === 1 ? "" : "s"));
+        const sub = subParts.join(" · ");
 
-// Parses lab rows + kickback rows into a JSON-serializable shape and stores
-// them under the 'dashboard_raw' cache key. This mirrors the parsing logic
-// inside aggregateLab() but produces the rows as plain objects (with the same
-// field names) ready for KV storage.
-function buildLabRawCache(rawValues, outgoingValues) {
-  const labRows = [];
-  if (rawValues && rawValues.length >= 2) {
-    const headers = rawValues[0];
-    const idx = {
-      Date: headers.indexOf('Date'),
-      Name: headers.indexOf('Name'),
-      Outcome: headers.indexOf('Outcome'),
-      ErrorType: headers.indexOf('Error Type'),
-      SerialNumber: headers.indexOf('Serial Number'),
-      Level: headers.indexOf('Level'),
-      Team: headers.indexOf('Team'),
-      Timestamp: headers.indexOf('Start Time'),
-      TypeOfRepair: headers.indexOf('Type of Repair'),
-    };
-    // Same exclusion as aggregateLab — keep custom date ranges consistent
-    // with preset ranges. Without this, ?from=&to= queries would include
-    // PSU/CB rows that the rest of the dashboard excludes.
-    const excludedTypes = new Set(EXCLUDED_LAB_TYPES.map(s => s.toLowerCase().trim()));
-    for (let i = 1; i < rawValues.length; i++) {
-      const r = rawValues[i];
-      const ts = parseDate(r[idx.Date]);
-      if (ts === null) continue;
-      if (idx.TypeOfRepair >= 0) {
-        const tor = (r[idx.TypeOfRepair] || '').toString().toLowerCase().trim();
-        if (excludedTypes.has(tor)) continue;
-      }
-      const hourDec = idx.Timestamp >= 0 ? parseHourDecimal(r[idx.Timestamp]) : null;
-      labRows.push({
-        ts, Date: r[idx.Date], Name: r[idx.Name] || 'Unknown',
-        Outcome: r[idx.Outcome] || '', ErrorType: r[idx.ErrorType] || '',
-        SerialNumber: r[idx.SerialNumber] || '', Level: r[idx.Level] || '',
-        Team: r[idx.Team] || '', hourDec,
-      });
-    }
-  }
-  const kickbackRows = parseKickbacks(outgoingValues);
-  return { labRows, kickbackRows, builtAt: new Date().toISOString() };
-}
+        const tcKickbacks = s.kickbacks || 0;
+        const tcKbRate = s.kickbackRate || 0;
+        const tcKbCls = kbRateClass(tcKbRate, tcKickbacks);
+        const kickbackLine = tcKickbacks === 0
+          ? '<div class="tech-kickback">' +
+              '<span class="tech-kickback-label">Kickbacks</span>' +
+              '<span class="tech-kickback-val muted">0</span>' +
+            '</div>'
+          : '<div class="tech-kickback">' +
+              '<span class="tech-kickback-label">Kickbacks</span>' +
+              '<span class="tech-kickback-val ' + tcKbCls + '">' + tcKickbacks + ' · ' + fmtRate(tcKbRate) + '%</span>' +
+            '</div>';
 
-// Compute lab aggregates for a custom [from, to] inclusive date range.
-// from/to are YYYY-MM-DD strings, interpreted as local-zone calendar days.
-// If the raw cache isn't populated yet, this will run a fresh aggregation
-// (which also populates the raw cache as a side effect) before computing.
-async function aggregateLabCustomRange(env, from, to) {
-  let rawJson = await env.DASHBOARD_CACHE.get('dashboard_raw');
-  if (!rawJson) {
-    // Cold start — build the cache by running the standard aggregation, which
-    // also writes the raw cache.
-    await runAggregation(env, 'lab');
-    rawJson = await env.DASHBOARD_CACHE.get('dashboard_raw');
-    if (!rawJson) throw new Error('Raw lab cache could not be built');
-  }
-  const raw = JSON.parse(rawJson);
+        return '<div class="tech-card">' +
+          '<div class="tech-card-head">' +
+            '<div>' +
+              '<div class="tech-card-name">' + esc(s.name) + '</div>' +
+              '<div class="tech-card-sub">' + sub + '</div>' +
+            '</div>' +
+            '<div class="tech-pct ' + pCls + '">' + s.pct + '%</div>' +
+          '</div>' +
+          '<div class="tech-bph-row">' +
+            '<span class="tech-bph-value ' + bCls + '">' + fmtBPH(s.bph) + '</span>' +
+            '<span class="tech-bph-label">BPH</span>' +
+          '</div>' +
+          '<div class="tech-stats">' +
+            '<div><div class="tech-stat-num">' + s.touches + '</div><div class="tech-stat-label">Touches</div></div>' +
+            '<div><div class="tech-stat-num">' + s.repairs + '</div><div class="tech-stat-label">Repairs</div></div>' +
+            '<div><div class="tech-stat-num false-asic">' + s.falseAsics + '</div><div class="tech-stat-label">False ASICs</div></div>' +
+            '<div><div class="tech-stat-num giveup">' + s.giveups + '</div><div class="tech-stat-label">Give-Ups</div></div>' +
+            '<div><div class="tech-stat-num grave">' + s.graveyards + '</div><div class="tech-stat-label">Graveyards</div></div>' +
+          '</div>' +
+          kickbackLine +
+          '</div>';
+      }).join("");
 
-  // Build inclusive [startMs, endMs] window. End is end-of-day local time.
-  const [fy, fm, fd] = from.split('-').map(Number);
-  const [ty, tm, td] = to.split('-').map(Number);
-  let startMs = new Date(fy, fm - 1, fd, 0, 0, 0, 0).getTime();
-  let endMs = new Date(ty, tm - 1, td, 23, 59, 59, 999).getTime();
-  // If user picked from > to, swap them so the range is still meaningful
-  if (startMs > endMs) { const tmp = startMs; startMs = endMs; endMs = tmp; }
+      const tpKickbacks = panelData.kickbacks || 0;
+      const tpKbRate = panelData.kickbackRate || 0;
+      const tpKbCls = kbRateClass(tpKbRate, tpKickbacks);
+      const teamKbMeta = tpKickbacks === 0
+        ? '<span class="sep">|</span><span class="kb green">0 Kickbacks</span>'
+        : '<span class="sep">|</span><span class="kb ' + tpKbCls + '">' + tpKickbacks + ' Kickbacks · ' + fmtRate(tpKbRate) + '%</span>';
 
-  const filtered = raw.labRows.filter(r => r.ts >= startMs && r.ts <= endMs);
-  const filteredKickbacks = raw.kickbackRows.filter(k => k.ts >= startMs && k.ts <= endMs);
-
-  // Pick a trend bucket based on the span of the custom range:
-  //   ≤ 31 days  → daily buckets
-  //   ≤ 6 months → weekly buckets
-  //   otherwise  → monthly buckets
-  // This is independent of the standard preset rules and overrides the default
-  // 'custom' falls-through behavior in getTrendBucketForRange().
-  const spanDays = Math.ceil((endMs - startMs) / (24 * 60 * 60 * 1000)) + 1;
-  let pseudoRange;
-  if (spanDays <= 31) pseudoRange = 'month';        // -> day buckets
-  else if (spanDays <= 186) pseudoRange = 'quarter'; // -> week buckets
-  else pseudoRange = 'ytd';                          // -> month buckets
-
-  // Use pseudoRange for the trend bucketing path inside computeLabAggregates,
-  // but pass useLiveToday=false so any "today" bucket within the custom range
-  // uses flat 8 hrs/day like every other day. (Per design: stale-OK.)
-  const aggregated = computeLabAggregates(filtered, pseudoRange, filteredKickbacks, false);
-  return {
-    ...aggregated,
-    fetchedAt: raw.builtAt,
-    range: 'custom',
-    from, to,
-  };
-}
-
-// =============================================================
-// COORDINATOR / OUTGOING CUSTOM DATE RANGE SUPPORT
-// =============================================================
-// Mirrors the lab custom range path, but uses the operating-day model for
-// boundaries (consistent with how the preset 'today' range works for these
-// dashboards). When the user picks "April 15 to April 17", the request covers
-// 1 AM April 15 EST through 1 AM April 18 EST — three full operating days.
-
-// Parses the coordinator sheet rows into the coord-shape used internally
-// (matches what aggregateCoordinator builds) and returns them in a JSON-
-// serializable form ready for KV storage.
-function buildCoordRawCache(rawValues) {
-  const rows = parseCoordSheet(rawValues, /* isOutgoing */ false);
-  return { rows, builtAt: new Date().toISOString() };
-}
-
-// Same as above, for outgoing. Outgoing rows include the kickback fields
-// (isKickback, kickbackName) so the kickback panel can be rebuilt on demand.
-function buildOutgoingRawCache(rawValues) {
-  const rows = parseCoordSheet(rawValues, /* isOutgoing */ true);
-  return { rows, builtAt: new Date().toISOString() };
-}
-
-// Shared parse routine — returns the row shape both aggregateCoordinator and
-// aggregateOutgoing build internally. Pulled out so both the standard
-// aggregations and the custom range cache can reuse the same parsing logic.
-function parseCoordSheet(rawValues, isOutgoing) {
-  if (!rawValues || rawValues.length < 2) return [];
-  const headers = rawValues[0];
-  const idx = {
-    Date: headers.indexOf('Date'),
-    Name: headers.indexOf('Name'),
-    Model: headers.indexOf('Model'),
-    ErrorType: headers.indexOf('Error Type'),
-    FormSource: headers.indexOf('Form Source'),
-    Timestamp: headers.indexOf('Timestamp'),
-    Title: headers.indexOf('Title'),
-    Repaired: isOutgoing ? headers.indexOf('Repaired') : -1,
-    Kickback: isOutgoing ? headers.indexOf('Kickback') : -1,
-  };
-  const result = [];
-  for (let i = 1; i < rawValues.length; i++) {
-    const r = rawValues[i];
-    const ts = parseDate(r[idx.Date]);
-    if (ts === null) continue;
-    const formSource = (r[idx.FormSource] || '').toString().toLowerCase();
-    let shift = 'Unknown';
-    if (formSource.includes('day')) shift = 'Day';
-    else if (formSource.includes('night')) shift = 'Night';
-    const title = (idx.Title >= 0 ? r[idx.Title] : '') || '';
-    if (title.toString().toLowerCase().includes('terminated')) {
-      shift = 'Terminated';
-    }
-    const hour = parseHour(r[idx.Timestamp]);
-    const hourDec = parseHourDecimal(r[idx.Timestamp]);
-    const row = {
-      ts, Date: r[idx.Date], Name: r[idx.Name] || 'Unknown',
-      Model: r[idx.Model] || 'Unknown', ErrorType: r[idx.ErrorType] || '',
-      Shift: shift, hour, hourDec,
-    };
-    if (isOutgoing) {
-      const repaired = idx.Repaired >= 0 ? (r[idx.Repaired] || '').toString().trim().toLowerCase() : '';
-      const kickbackName = idx.Kickback >= 0 ? (r[idx.Kickback] || '').toString().trim() : '';
-      row.isKickback = (repaired === 'false') && kickbackName.length > 0;
-      row.kickbackName = row.isKickback ? kickbackName : '';
-    }
-    result.push(row);
-  }
-  return result;
-}
-
-// Compute coord/outgoing aggregates for a custom [from, to] inclusive
-// operating-day range.
-//
-// Operating-day semantics for custom ranges:
-//   from='YYYY-MM-DD' → window starts at 1 AM EST on that calendar date
-//   to='YYYY-MM-DD'   → window ends at 1 AM EST on the day AFTER that date
-// So picking April 15 → April 17 covers the operating days for 15, 16, and 17.
-//
-// type: 'coordinator' or 'outgoing'
-async function aggregateCoordCustomRange(env, type, from, to) {
-  const cacheKey = type === 'outgoing' ? 'outgoing_raw' : 'coordinator_raw';
-  let rawJson = await env.DASHBOARD_CACHE.get(cacheKey);
-  if (!rawJson) {
-    // Cold start — build the cache by running the standard aggregation, which
-    // also writes the raw cache.
-    await runAggregation(env, type);
-    rawJson = await env.DASHBOARD_CACHE.get(cacheKey);
-    if (!rawJson) throw new Error('Raw ' + type + ' cache could not be built');
-  }
-  const raw = JSON.parse(rawJson);
-  const allRows = raw.rows;
-
-  // Build inclusive operating-day window. Range starts at 1 AM EST on `from`
-  // and ends at 1 AM EST on the day after `to`.
-  const [fy, fm, fd] = from.split('-').map(Number);
-  const [ty, tm, td] = to.split('-').map(Number);
-  let startMs = new Date(fy, fm - 1, fd, 1, 0, 0, 0).getTime(); // 1 AM local
-  // To = inclusive, so end = 1 AM the day AFTER `to`
-  let endMs = new Date(ty, tm - 1, td + 1, 1, 0, 0, 0).getTime();
-  if (startMs > endMs) { const tmp = startMs; startMs = endMs; endMs = tmp; }
-
-  const filtered = filterCoordRowsByOperatingRange(allRows, startMs, endMs);
-
-  // Pick a trend bucket based on span (same heuristic as lab custom range)
-  const spanDays = Math.ceil((endMs - startMs) / (24 * 60 * 60 * 1000));
-  let pseudoRange;
-  if (spanDays <= 31) pseudoRange = 'month';
-  else if (spanDays <= 186) pseudoRange = 'quarter';
-  else pseudoRange = 'ytd';
-
-  // Compute aggregates. Both computeCoordinatorAggregates and
-  // computeOutgoingAggregates produce {all, day, night} shift slices. For
-  // custom ranges we use pseudoRange (never 'today') so the live-elapsed-hours
-  // math doesn't kick in — flat 8 hrs/day per coord-day everywhere.
-  const aggregated = type === 'outgoing'
-    ? computeOutgoingAggregates(filtered, pseudoRange, allRows)
-    : computeCoordinatorAggregates(filtered, pseudoRange, allRows);
-
-  return {
-    ...aggregated,
-    fetchedAt: raw.builtAt,
-    range: 'custom',
-    from, to,
-  };
-}
-
-// Filter rows to only those whose operating-day timestamp falls in [startMs, endMs).
-// "Operating day for a row" = the calendar day if the row's hour >= 1 AM,
-// else the previous calendar day (rows logged 12:00 AM - 12:59 AM belong to
-// the previous operating day).
-//
-// In practice we just compare the row's effective operating-day timestamp
-// against the window. The window itself is already expressed as 1 AM
-// boundaries, so we can simply check ts >= startMs && ts < endMs after
-// shifting the row's ts back by 1 hour if it was logged before 1 AM.
-function filterCoordRowsByOperatingRange(rows, startMs, endMs) {
-  return rows.filter(r => {
-    // For the "before 1 AM" case, the row belongs to the prior operating day.
-    // We model this by shifting the ts forward by NOT shifting (since startMs
-    // and endMs are already 1AM-aligned), and just doing an inclusive-start
-    // exclusive-end compare against the row's ACTUAL timestamp recomputed
-    // with hour-of-day awareness:
-    //   - If hour >= 1: row's operating-day ts = midnight of the row's date
-    //   - If hour <  1: row's operating-day ts = midnight of the day BEFORE
-    // Then check if the operating-day midnight + 1 hour falls within [start, end).
-    const d = new Date(r.ts);
-    const rowHour = (r.hourDec !== null && r.hourDec !== undefined) ? r.hourDec
-                   : (r.hour !== null && r.hour !== undefined) ? r.hour
-                   : 12; // unknown → assume daytime (won't trigger the < 1 AM rule)
-    // Operating-day "1 AM start" timestamp for this row:
-    let opDayStartMs;
-    if (rowHour >= 1.0) {
-      opDayStartMs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 1, 0, 0, 0).getTime();
-    } else {
-      // Row was logged 12:00 AM - 12:59 AM, so it belongs to the prior op-day
-      opDayStartMs = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1, 1, 0, 0, 0).getTime();
-    }
-    // Include if this row's operating day starts within the requested window
-    return opDayStartMs >= startMs && opDayStartMs < endMs;
-  });
-}
-
-// =============================================================
-// COORDINATOR AGGREGATION (with new metrics)
-// =============================================================
-
-function aggregateCoordinator(rawValues) {
-  if (rawValues.length < 2) throw new Error('Coordinator sheet returned no data rows');
-  const headers = rawValues[0];
-  const idx = {
-    Date: headers.indexOf('Date'),
-    Name: headers.indexOf('Name'),
-    Model: headers.indexOf('Model'),
-    ErrorType: headers.indexOf('Error Type'),
-    FormSource: headers.indexOf('Form Source'),
-    Timestamp: headers.indexOf('Timestamp'),
-    Title: headers.indexOf('Title'),
-  };
-
-  const allRows = [];
-  for (let i = 1; i < rawValues.length; i++) {
-    const r = rawValues[i];
-    const ts = parseDate(r[idx.Date]);
-    if (ts === null) continue;
-    const formSource = (r[idx.FormSource] || '').toString().toLowerCase();
-    let shift = 'Unknown';
-    if (formSource.includes('day')) shift = 'Day';
-    else if (formSource.includes('night')) shift = 'Night';
-    // Override shift to 'Terminated' if Title indicates the employee was terminated
-    const title = (idx.Title >= 0 ? r[idx.Title] : '') || '';
-    if (title.toString().toLowerCase().includes('terminated')) {
-      shift = 'Terminated';
-    }
-    const hour = parseHour(r[idx.Timestamp]);
-    const hourDec = parseHourDecimal(r[idx.Timestamp]);
-    allRows.push({
-      ts, Date: r[idx.Date], Name: r[idx.Name] || 'Unknown',
-      Model: r[idx.Model] || 'Unknown', ErrorType: r[idx.ErrorType] || '',
-      Shift: shift, hour, hourDec,
+      const panel = document.createElement("div");
+      panel.className = "team-panel" + (panelIdx === currentTeam ? " active" : "");
+      panel.id = "team-" + panelIdx;
+      panel.innerHTML =
+        '<div class="team-header">' +
+          '<div class="team-name">' + esc(panelData.name) + '</div>' +
+          '<div class="team-meta">' +
+            '<strong>' + panelData.techCount + '</strong> Techs' +
+            '<span class="sep">|</span>' +
+            '<strong>' + panelData.touches.toLocaleString() + '</strong> Touches' +
+            '<span class="sep">|</span>' +
+            '<span class="pct ' + pctClass(panelData.pct) + '">' + panelData.pct + '% Repair</span>' +
+            '<span class="sep">|</span>' +
+            '<span class="bph ' + bphClass(panelData.bph) + '">' + fmtBPH(panelData.bph) + ' BPH</span>' +
+            teamKbMeta +
+          '</div>' +
+        '</div>' +
+        '<div class="tech-grid">' + cardsHTML + '</div>';
+      stage.appendChild(panel);
     });
+
+    // Hide banner
+    document.getElementById("techBanner").classList.remove("show");
+    document.body.classList.remove("tech-filtered");
+
+    startRotation();
   }
 
-  const aggregated = { fetchedAt: new Date().toISOString(), ranges: {} };
-  for (const range of RANGES) {
-    const filtered = filterCoordRowsForRange(allRows, range);
-    aggregated.ranges[range] = computeCoordinatorAggregates(filtered, range, allRows);
-  }
-  return aggregated;
-}
+  // Top-level render dispatcher — picks lab-wide or tech-filtered based on state
+  function renderAll() {
+    if (!currentData) return;
+    // Always rebuild the dropdown options (data may have changed)
+    renderTechFilterList();
+    updateTechFilterButton();
 
-function computeCoordinatorAggregates(rows, range, allRows) {
-  return {
-    all:   computeCoordinatorShiftAggregate(rows, range, allRows, 'all'),
-    day:   computeCoordinatorShiftAggregate(rows.filter(r => r.Shift === 'Day'), range, allRows, 'Day'),
-    night: computeCoordinatorShiftAggregate(rows.filter(r => r.Shift === 'Night'), range, allRows, 'Night'),
-  };
-}
-
-function computeCoordinatorShiftAggregate(rows, range, allRows, shiftFilter) {
-  const isToday = range === 'today';
-  const units = rows.length;
-  const dayKeys = new Set();
-  rows.forEach(r => {
-    const dk = dayKeyFromTs(r.ts);
-    if (dk) dayKeys.add(`${r.Name}|${dk}`);
-  });
-  const coordDays = dayKeys.size;
-  const coords = new Set(rows.map(r => r.Name)).size;
-
-  const dayRows = rows.filter(r => r.Shift === 'Day');
-  const nightRows = rows.filter(r => r.Shift === 'Night');
-  const dayUnits = dayRows.length;
-  const nightUnits = nightRows.length;
-
-  const dayDayKeys = new Set();
-  dayRows.forEach(r => { const dk = dayKeyFromTs(r.ts); if (dk) dayDayKeys.add(`${r.Name}|${dk}`); });
-  const nightDayKeys = new Set();
-  nightRows.forEach(r => { const dk = dayKeyFromTs(r.ts); if (dk) nightDayKeys.add(`${r.Name}|${dk}`); });
-  const dayCoords = new Set(dayRows.map(r => r.Name)).size;
-  const nightCoords = new Set(nightRows.map(r => r.Name)).size;
-
-  // Compute hours-denominators
-  // For Today: use elapsed hours per active coordinator on each shift
-  // For other ranges: use coord-days * 8 hours
-  let totalHours, dayHours, nightHours;
-  if (isToday) {
-    const dayElapsed = getCoordElapsedHoursToday('Day');
-    const nightElapsed = getCoordElapsedHoursToday('Night');
-    dayHours = dayCoords * dayElapsed;
-    nightHours = nightCoords * nightElapsed;
-    totalHours = dayHours + nightHours;
-    if (totalHours === 0) totalHours = coordDays * HOURS_PER_DAY; // fallback
-  } else {
-    totalHours = coordDays * HOURS_PER_DAY;
-    dayHours = dayDayKeys.size * HOURS_PER_DAY;
-    nightHours = nightDayKeys.size * HOURS_PER_DAY;
-  }
-
-  const bph = totalHours > 0 ? units / totalHours : 0;
-  const dayBph = dayHours > 0 ? dayUnits / dayHours : 0;
-  const nightBph = nightHours > 0 ? nightUnits / nightHours : 0;
-
-  const coordMap = {};
-  rows.forEach(r => {
-    if (!coordMap[r.Name]) coordMap[r.Name] = { name: r.Name, rows: [], shifts: {} };
-    coordMap[r.Name].rows.push(r);
-    coordMap[r.Name].shifts[r.Shift] = (coordMap[r.Name].shifts[r.Shift] || 0) + 1;
-  });
-  const coordStats = Object.values(coordMap).map(c => {
-    const cUnits = c.rows.length;
-    const cDayKeys = new Set();
-    c.rows.forEach(r => { const dk = dayKeyFromTs(r.ts); if (dk) cDayKeys.add(dk); });
-    const cDays = cDayKeys.size;
-    let primary = 'Unknown';
-    // Terminated takes precedence — if any of their rows are flagged Terminated,
-    // they're a Terminated coord (their employment status overrides shift)
-    if (c.shifts.Terminated) primary = 'Terminated';
-    else if (c.shifts.Day && !c.shifts.Night) primary = 'Day';
-    else if (c.shifts.Night && !c.shifts.Day) primary = 'Night';
-    else if (c.shifts.Day && c.shifts.Night) primary = 'Mixed';
-
-    // Per-coord hours: today uses elapsed for their primary shift; else flat 8 per day
-    let cHours;
-    if (isToday) {
-      if (primary === 'Day') cHours = getCoordElapsedHoursToday('Day');
-      else if (primary === 'Night') cHours = getCoordElapsedHoursToday('Night');
-      else if (primary === 'Mixed') {
-        cHours = getCoordElapsedHoursToday('Day') + getCoordElapsedHoursToday('Night');
-      } else {
-        cHours = HOURS_PER_DAY; // unknown or terminated, fall back
-      }
+    const tech = getSelectedTech();
+    if (tech) {
+      renderTechFiltered(tech);
     } else {
-      cHours = cDays * HOURS_PER_DAY;
-    }
-    const cBph = cHours > 0 ? cUnits / cHours : 0;
-
-    return {
-      name: c.name, units: cUnits, days: cDays, bph: round2(cBph), primary,
-      dayCount: c.shifts.Day || 0, nightCount: c.shifts.Night || 0,
-    };
-  });
-
-  const leaders = [...coordStats].sort((a, b) => b.units - a.units).slice(0, 10);
-
-  const modelCounts = {};
-  rows.forEach(r => {
-    const m = (r.Model || 'Unknown').toString().trim() || 'Unknown';
-    modelCounts[m] = (modelCounts[m] || 0) + 1;
-  });
-  const models = Object.keys(modelCounts)
-    .map(k => ({ name: k, count: modelCounts[k] }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 8);
-
-  const trend = computeCoordinatorTrend(rows, range);
-
-  // === Error type breakdown (case-insensitive merge) ===
-  const errorTypes = aggregateErrorTypes(rows);
-
-  // === NEW: Hourly distribution ===
-  // Buckets 0-23. Sums boards logged in each hour across all days in range.
-  const hourly = new Array(24).fill(0);
-  rows.forEach(r => {
-    if (r.hour !== null && r.hour >= 0 && r.hour < 24) {
-      hourly[r.hour]++;
-    }
-  });
-  // Convert to per-day average for ranges longer than today
-  const distinctDays = new Set();
-  rows.forEach(r => { const dk = dayKeyFromTs(r.ts); if (dk) distinctDays.add(dk); });
-  const dayCount = distinctDays.size || 1;
-  const hourlyAvg = hourly.map(c => round2(c / dayCount));
-
-  // === NEW: Average boards per coordinator-day ===
-  const avgPerCoordDay = coordDays > 0 ? round2(units / coordDays) : 0;
-
-  // === NEW: Rolling 4-week average (for comparison vs current avg) ===
-  // Computed from allRows (not just filtered range) - last 28 days, same shift filter
-  const rollingAvg = computeRollingAvgPerCoordDay(allRows, shiftFilter, 28);
-
-  // === NEW: Day-over-day deltas ===
-  // Compare current range's totals with the prior equivalent range
-  const priorPeriod = computePriorPeriodTotals(allRows, range, shiftFilter);
-  const deltas = computeDeltas(
-    { units, bph },
-    priorPeriod
-  );
-
-  return {
-    summary: {
-      units, coordDays, bph: round2(bph), coords,
-      day: dayUnits, night: nightUnits,
-      dayBph: round2(dayBph), nightBph: round2(nightBph),
-      dayCoords, nightCoords,
-      avgPerCoordDay,
-      rollingAvg,
-      deltas,
-    },
-    coordStats, leaders, models, trend, errorTypes, hourlyAvg,
-  };
-}
-
-// Aggregate Error Type counts case-insensitively.
-// Different casings of the same error type ("ASIC Error" vs "Asic Error" vs
-// "asic error") get merged into a single bucket. The display label uses the
-// first spelling encountered in the rows — whatever the team types first wins.
-function aggregateErrorTypes(rows) {
-  const buckets = {}; // lowerKey -> { name, count }
-  rows.forEach(r => {
-    const raw = (r.ErrorType || 'Unknown').toString().trim() || 'Unknown';
-    const key = raw.toLowerCase();
-    if (!buckets[key]) buckets[key] = { name: raw, count: 0 };
-    buckets[key].count++;
-  });
-  return Object.values(buckets).sort((a, b) => b.count - a.count);
-}
-
-// =============================================================
-// OUTGOING AGGREGATION
-// =============================================================
-// Outgoing data lives in the "Master Outgoing" tab and uses the same shift /
-// operating-day / terminated-coord conventions as the Incoming dashboard.
-// The outgoing dashboard adds a Kickbacks panel.
-//
-// Kickback definition (matches the lab dashboard's logic so numbers reconcile):
-//   A row counts as a kickback if Repaired === FALSE AND the Kickback column
-//   contains a non-empty lab tech name. The named lab tech "owns" the kickback.
-
-function aggregateOutgoing(rawValues) {
-  if (rawValues.length < 2) throw new Error('Outgoing sheet returned no data rows');
-  const headers = rawValues[0];
-  const idx = {
-    Date: headers.indexOf('Date'),
-    Name: headers.indexOf('Name'),
-    Model: headers.indexOf('Model'),
-    ErrorType: headers.indexOf('Error Type'),
-    FormSource: headers.indexOf('Form Source'),
-    Timestamp: headers.indexOf('Timestamp'),
-    Title: headers.indexOf('Title'),
-    Repaired: headers.indexOf('Repaired'),
-    Kickback: headers.indexOf('Kickback'),
-  };
-
-  const allRows = [];
-  for (let i = 1; i < rawValues.length; i++) {
-    const r = rawValues[i];
-    const ts = parseDate(r[idx.Date]);
-    if (ts === null) continue;
-    const formSource = (r[idx.FormSource] || '').toString().toLowerCase();
-    let shift = 'Unknown';
-    if (formSource.includes('day')) shift = 'Day';
-    else if (formSource.includes('night')) shift = 'Night';
-    // Override shift to 'Terminated' if Title indicates the employee was terminated
-    const title = (idx.Title >= 0 ? r[idx.Title] : '') || '';
-    if (title.toString().toLowerCase().includes('terminated')) {
-      shift = 'Terminated';
-    }
-    const hour = parseHour(r[idx.Timestamp]);
-    const hourDec = parseHourDecimal(r[idx.Timestamp]);
-    // Kickback parsing: same definition as lab dashboard's parseKickbacks()
-    const repaired = idx.Repaired >= 0 ? (r[idx.Repaired] || '').toString().trim().toLowerCase() : '';
-    const kickbackName = idx.Kickback >= 0 ? (r[idx.Kickback] || '').toString().trim() : '';
-    const isKickback = (repaired === 'false') && kickbackName.length > 0;
-    allRows.push({
-      ts, Date: r[idx.Date], Name: r[idx.Name] || 'Unknown',
-      Model: r[idx.Model] || 'Unknown', ErrorType: r[idx.ErrorType] || '',
-      Shift: shift, hour, hourDec,
-      isKickback, kickbackName: isKickback ? kickbackName : '',
-    });
-  }
-
-  const aggregated = { fetchedAt: new Date().toISOString(), ranges: {} };
-  for (const range of RANGES) {
-    const filtered = filterCoordRowsForRange(allRows, range);
-    aggregated.ranges[range] = computeOutgoingAggregates(filtered, range, allRows);
-  }
-  return aggregated;
-}
-
-function computeOutgoingAggregates(rows, range, allRows) {
-  // Build the same coord/shift slices as the incoming dashboard, then attach
-  // a kickback panel. Kickbacks intentionally do NOT filter by Day/Night shift —
-  // they reflect lab tech work quality, not coordinator shift activity. So the
-  // kickback panel is computed once from the unfiltered (by shift) rows.
-  const shiftSlices = {
-    all:   computeOutgoingShiftAggregate(rows, range, allRows, 'all'),
-    day:   computeOutgoingShiftAggregate(rows.filter(r => r.Shift === 'Day'), range, allRows, 'Day'),
-    night: computeOutgoingShiftAggregate(rows.filter(r => r.Shift === 'Night'), range, allRows, 'Night'),
-  };
-  // Compute kickback panel from the time-range-filtered rows (all shifts)
-  const kickbackPanel = computeKickbackPanel(rows, range);
-  // Attach kickback panel to each shift slice so the frontend can read it
-  // regardless of which shift toggle is active. (Same data on all three.)
-  shiftSlices.all.kickbacks = kickbackPanel;
-  shiftSlices.day.kickbacks = kickbackPanel;
-  shiftSlices.night.kickbacks = kickbackPanel;
-  return shiftSlices;
-}
-
-function computeOutgoingShiftAggregate(rows, range, allRows, shiftFilter) {
-  // Identical computation to computeCoordinatorShiftAggregate — outgoing tracks
-  // boards going out using the same coord/shift/BPH model.
-  const isToday = range === 'today';
-  const units = rows.length;
-  const dayKeys = new Set();
-  rows.forEach(r => {
-    const dk = dayKeyFromTs(r.ts);
-    if (dk) dayKeys.add(`${r.Name}|${dk}`);
-  });
-  const coordDays = dayKeys.size;
-  const coords = new Set(rows.map(r => r.Name)).size;
-
-  const dayRows = rows.filter(r => r.Shift === 'Day');
-  const nightRows = rows.filter(r => r.Shift === 'Night');
-  const dayUnits = dayRows.length;
-  const nightUnits = nightRows.length;
-
-  const dayDayKeys = new Set();
-  dayRows.forEach(r => { const dk = dayKeyFromTs(r.ts); if (dk) dayDayKeys.add(`${r.Name}|${dk}`); });
-  const nightDayKeys = new Set();
-  nightRows.forEach(r => { const dk = dayKeyFromTs(r.ts); if (dk) nightDayKeys.add(`${r.Name}|${dk}`); });
-  const dayCoords = new Set(dayRows.map(r => r.Name)).size;
-  const nightCoords = new Set(nightRows.map(r => r.Name)).size;
-
-  let totalHours, dayHours, nightHours;
-  if (isToday) {
-    const dayElapsed = getCoordElapsedHoursToday('Day');
-    const nightElapsed = getCoordElapsedHoursToday('Night');
-    dayHours = dayCoords * dayElapsed;
-    nightHours = nightCoords * nightElapsed;
-    totalHours = dayHours + nightHours;
-    if (totalHours === 0) totalHours = coordDays * HOURS_PER_DAY;
-  } else {
-    totalHours = coordDays * HOURS_PER_DAY;
-    dayHours = dayDayKeys.size * HOURS_PER_DAY;
-    nightHours = nightDayKeys.size * HOURS_PER_DAY;
-  }
-
-  const bph = totalHours > 0 ? units / totalHours : 0;
-  const dayBph = dayHours > 0 ? dayUnits / dayHours : 0;
-  const nightBph = nightHours > 0 ? nightUnits / nightHours : 0;
-
-  const coordMap = {};
-  rows.forEach(r => {
-    if (!coordMap[r.Name]) coordMap[r.Name] = { name: r.Name, rows: [], shifts: {} };
-    coordMap[r.Name].rows.push(r);
-    coordMap[r.Name].shifts[r.Shift] = (coordMap[r.Name].shifts[r.Shift] || 0) + 1;
-  });
-  const coordStats = Object.values(coordMap).map(c => {
-    const cUnits = c.rows.length;
-    const cDayKeys = new Set();
-    c.rows.forEach(r => { const dk = dayKeyFromTs(r.ts); if (dk) cDayKeys.add(dk); });
-    const cDays = cDayKeys.size;
-    let primary = 'Unknown';
-    if (c.shifts.Terminated) primary = 'Terminated';
-    else if (c.shifts.Day && !c.shifts.Night) primary = 'Day';
-    else if (c.shifts.Night && !c.shifts.Day) primary = 'Night';
-    else if (c.shifts.Day && c.shifts.Night) primary = 'Mixed';
-
-    let cHours;
-    if (isToday) {
-      if (primary === 'Day') cHours = getCoordElapsedHoursToday('Day');
-      else if (primary === 'Night') cHours = getCoordElapsedHoursToday('Night');
-      else if (primary === 'Mixed') {
-        cHours = getCoordElapsedHoursToday('Day') + getCoordElapsedHoursToday('Night');
-      } else {
-        cHours = HOURS_PER_DAY;
+      // If a tech name was selected but doesn't exist in this data, clear it
+      // silently. Could happen if the URL had a stale name, or the tech was
+      // removed.
+      if (selectedTechName) {
+        selectedTechName = null;
+        syncUrl();
+        updateTechFilterButton();
       }
-    } else {
-      cHours = cDays * HOURS_PER_DAY;
-    }
-    const cBph = cHours > 0 ? cUnits / cHours : 0;
-
-    // Per-coord kickback count: rows this coord logged where the board came
-    // back as a failed repair (Repaired === FALSE AND Kickback column has a
-    // lab tech name). Same definition as the lab-tech leaderboard, just
-    // grouped by who logged the row instead of who's named in Kickback.
-    // Used to spot patterns like "60 of Gwen's 82 kickbacks came from one
-    // coordinator's tests" — that points at a faulty tester, not bad repairs.
-    const cKickbacks = c.rows.filter(r => r.isKickback).length;
-    const cKickbackRate = cUnits > 0 ? Math.round((cKickbacks / cUnits) * 1000) / 10 : 0;
-
-    return {
-      name: c.name, units: cUnits, days: cDays, bph: round2(cBph), primary,
-      dayCount: c.shifts.Day || 0, nightCount: c.shifts.Night || 0,
-      kickbacks: cKickbacks, kickbackRate: cKickbackRate,
-    };
-  });
-
-  const leaders = [...coordStats].sort((a, b) => b.units - a.units).slice(0, 10);
-
-  const modelCounts = {};
-  rows.forEach(r => {
-    const m = (r.Model || 'Unknown').toString().trim() || 'Unknown';
-    modelCounts[m] = (modelCounts[m] || 0) + 1;
-  });
-  const models = Object.keys(modelCounts)
-    .map(k => ({ name: k, count: modelCounts[k] }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 8);
-
-  const trend = computeCoordinatorTrend(rows, range);
-
-  const errorTypes = aggregateErrorTypes(rows);
-
-  const hourly = new Array(24).fill(0);
-  rows.forEach(r => {
-    if (r.hour !== null && r.hour >= 0 && r.hour < 24) {
-      hourly[r.hour]++;
-    }
-  });
-  const distinctDays = new Set();
-  rows.forEach(r => { const dk = dayKeyFromTs(r.ts); if (dk) distinctDays.add(dk); });
-  const dayCount = distinctDays.size || 1;
-  const hourlyAvg = hourly.map(c => round2(c / dayCount));
-
-  const avgPerCoordDay = coordDays > 0 ? round2(units / coordDays) : 0;
-  const rollingAvg = computeRollingAvgPerCoordDay(allRows, shiftFilter, 28);
-  const priorPeriod = computePriorPeriodTotals(allRows, range, shiftFilter);
-  const deltas = computeDeltas({ units, bph }, priorPeriod);
-
-  return {
-    summary: {
-      units, coordDays, bph: round2(bph), coords,
-      day: dayUnits, night: nightUnits,
-      dayBph: round2(dayBph), nightBph: round2(nightBph),
-      dayCoords, nightCoords,
-      avgPerCoordDay,
-      rollingAvg,
-      deltas,
-    },
-    coordStats, leaders, models, trend, errorTypes, hourlyAvg,
-  };
-}
-
-// Build the kickback panel data for the outgoing dashboard.
-// rows: time-range-filtered outgoing rows (NOT shift-filtered — kickbacks are
-//   about lab tech work quality, not coord shift)
-// Returns:
-//   { total, rate, leaderboard: [{name, count}, ...], trend: {labels, counts} }
-// rate = kickbacks / total outgoing rows (as a percentage with 1 decimal)
-function computeKickbackPanel(rows, range) {
-  const kickbackRows = rows.filter(r => r.isKickback);
-  const total = kickbackRows.length;
-  const totalOutgoing = rows.length;
-  const rate = totalOutgoing > 0 ? Math.round((total / totalOutgoing) * 1000) / 10 : 0;
-
-  // Leaderboard: lab tech name -> kickback count, sorted descending (worst first)
-  const byTech = {};
-  kickbackRows.forEach(r => {
-    byTech[r.kickbackName] = (byTech[r.kickbackName] || 0) + 1;
-  });
-  const leaderboard = Object.keys(byTech)
-    .map(name => ({ name, count: byTech[name] }))
-    .sort((a, b) => b.count - a.count);
-
-  // Trend: kickback count per bucket, same bucketing as the main trend chart
-  const bucket = getTrendBucketForRange(range);
-  const byBucket = {};
-  kickbackRows.forEach(r => {
-    const k = bucketKeyFromTs(r.ts, bucket);
-    if (!k) return;
-    byBucket[k] = (byBucket[k] || 0) + 1;
-  });
-  // Use the same set of bucket labels as the main trend so the x-axis aligns.
-  // We seed all buckets that appear in the full rows (not just kickback rows)
-  // so a zero-kickback day shows as 0, not as missing.
-  const allBuckets = {};
-  rows.forEach(r => {
-    const k = bucketKeyFromTs(r.ts, bucket);
-    if (!k) return;
-    if (!allBuckets[k]) allBuckets[k] = true;
-  });
-  const sortedKeys = Object.keys(allBuckets).sort();
-  const limit = getTrendLimit(bucket);
-  const limited = sortedKeys.slice(-limit);
-  const trend = {
-    labels: limited.map(k => bucketLabelFromKey(k, bucket)),
-    counts: limited.map(k => byBucket[k] || 0),
-  };
-
-  return { total, rate, leaderboard, trend };
-}
-
-function computeRollingAvgPerCoordDay(allRows, shiftFilter, days) {
-  const now = new Date();
-  const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  cutoff.setDate(cutoff.getDate() - days);
-  const cutoffMs = cutoff.getTime();
-  const recent = allRows.filter(r => {
-    if (r.ts < cutoffMs) return false;
-    if (shiftFilter !== 'all' && r.Shift !== shiftFilter) return false;
-    return true;
-  });
-  const u = recent.length;
-  const cd = new Set();
-  recent.forEach(r => {
-    const dk = dayKeyFromTs(r.ts);
-    if (dk) cd.add(`${r.Name}|${dk}`);
-  });
-  return cd.size > 0 ? round2(u / cd.size) : 0;
-}
-
-function computePriorPeriodTotals(allRows, range, shiftFilter) {
-  // Returns {units, bph} for the period immediately before the current range
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  let priorStart, priorEnd;
-
-  switch (range) {
-    case 'today': {
-      priorEnd = startOfToday;
-      priorStart = new Date(startOfToday);
-      priorStart.setDate(priorStart.getDate() - 1);
-      break;
-    }
-    case 'week': {
-      const dow = startOfToday.getDay();
-      const thisWeekStart = new Date(startOfToday);
-      thisWeekStart.setDate(thisWeekStart.getDate() - ((dow + 6) % 7));
-      priorEnd = thisWeekStart;
-      priorStart = new Date(thisWeekStart);
-      priorStart.setDate(priorStart.getDate() - 7);
-      break;
-    }
-    case 'month': {
-      const thisMonthStart = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), 1);
-      priorEnd = thisMonthStart;
-      priorStart = new Date(thisMonthStart);
-      priorStart.setMonth(priorStart.getMonth() - 1);
-      break;
-    }
-    case 'quarter': {
-      const thisQStart = new Date(startOfToday);
-      thisQStart.setMonth(Math.floor(startOfToday.getMonth() / 3) * 3, 1);
-      thisQStart.setHours(0, 0, 0, 0);
-      priorEnd = thisQStart;
-      priorStart = new Date(thisQStart);
-      priorStart.setMonth(priorStart.getMonth() - 3);
-      break;
-    }
-    case 'ytd': {
-      const thisYearStart = new Date(startOfToday.getFullYear(), 0, 1);
-      priorEnd = thisYearStart;
-      priorStart = new Date(thisYearStart);
-      priorStart.setFullYear(priorStart.getFullYear() - 1);
-      break;
-    }
-    case 'all':
-    default:
-      return null; // no prior period
-  }
-
-  const startMs = priorStart.getTime();
-  const endMs = priorEnd.getTime();
-  const priorRows = allRows.filter(r => {
-    if (r.ts < startMs || r.ts >= endMs) return false;
-    if (shiftFilter !== 'all' && r.Shift !== shiftFilter) return false;
-    return true;
-  });
-
-  const units = priorRows.length;
-  const cdKeys = new Set();
-  priorRows.forEach(r => {
-    const dk = dayKeyFromTs(r.ts);
-    if (dk) cdKeys.add(`${r.Name}|${dk}`);
-  });
-  const cd = cdKeys.size;
-  const bph = cd > 0 ? units / (cd * HOURS_PER_DAY) : 0;
-  return { units, bph: round2(bph) };
-}
-
-function computeDeltas(current, prior) {
-  if (!prior) return { units: null, bph: null };
-  return {
-    units: prior.units > 0 ? Math.round(((current.units - prior.units) / prior.units) * 100) : null,
-    bph: prior.bph > 0 ? Math.round(((current.bph - prior.bph) / prior.bph) * 100) : null,
-  };
-}
-
-function computeCoordinatorTrend(rows, range) {
-  const bucket = getTrendBucketForRange(range);
-  const byBucket = {};
-  rows.forEach(r => {
-    const k = bucketKeyFromTs(r.ts, bucket);
-    if (!k) return;
-    if (!byBucket[k]) byBucket[k] = [];
-    byBucket[k].push(r);
-  });
-  const sortedKeys = Object.keys(byBucket).sort();
-  const limit = getTrendLimit(bucket);
-  const limited = sortedKeys.slice(-limit);
-
-  // Today's day-bucket key (only relevant when bucket === 'day')
-  const estNow = getEstNow();
-  const todayDayKey = `${estNow.year}-${String(estNow.month).padStart(2,'0')}-${String(estNow.day).padStart(2,'0')}`;
-
-  const trend = { labels: [], units: [], bphs: [] };
-  limited.forEach(k => {
-    const bucketRows = byBucket[k];
-    const u = bucketRows.length;
-
-    // Compute hours denominator. For today's bucket, sum elapsed hours per active coord
-    // by their shift. For other buckets, use flat coord-days * 8.
-    let hoursDenom;
-    if (bucket === 'day' && k === todayDayKey) {
-      // Determine each coord's primary shift today (within this bucket)
-      const coordShifts = {};
-      bucketRows.forEach(r => {
-        if (!coordShifts[r.Name]) coordShifts[r.Name] = { Day: 0, Night: 0 };
-        if (r.Shift === 'Day') coordShifts[r.Name].Day++;
-        else if (r.Shift === 'Night') coordShifts[r.Name].Night++;
-      });
-      hoursDenom = 0;
-      Object.values(coordShifts).forEach(s => {
-        if (s.Day && !s.Night) hoursDenom += getCoordElapsedHoursToday('Day');
-        else if (s.Night && !s.Day) hoursDenom += getCoordElapsedHoursToday('Night');
-        else if (s.Day && s.Night) hoursDenom += getCoordElapsedHoursToday('Day') + getCoordElapsedHoursToday('Night');
-        else hoursDenom += HOURS_PER_DAY;
-      });
-      if (hoursDenom === 0) {
-        const cd = new Set();
-        bucketRows.forEach(r => { const dk = dayKeyFromTs(r.ts); if (dk) cd.add(`${r.Name}|${dk}`); });
-        hoursDenom = cd.size * HOURS_PER_DAY;
-      }
-    } else {
-      const cd = new Set();
-      bucketRows.forEach(r => { const dk = dayKeyFromTs(r.ts); if (dk) cd.add(`${r.Name}|${dk}`); });
-      hoursDenom = cd.size * HOURS_PER_DAY;
-    }
-
-    const tBph = hoursDenom > 0 ? u / hoursDenom : 0;
-    trend.labels.push(bucketLabelFromKey(k, bucket));
-    trend.units.push(u);
-    trend.bphs.push(round2(tBph));
-  });
-  return trend;
-}
-
-// =============================================================
-// SHARED HELPERS
-// =============================================================
-
-function round2(n) { return Math.round(n * 100) / 100; }
-
-function parseDate(dateStr) {
-  if (!dateStr) return null;
-  const parts = String(dateStr).split('/');
-  if (parts.length === 3) {
-    const m = parseInt(parts[0], 10);
-    const d = parseInt(parts[1], 10);
-    const y = parseInt(parts[2], 10);
-    if (!isNaN(m) && !isNaN(d) && !isNaN(y)) {
-      return new Date(y, m - 1, d).getTime();
+      renderLabWide();
     }
   }
-  const t = new Date(dateStr).getTime();
-  return isNaN(t) ? null : t;
-}
 
-function parseHour(timestampStr) {
-  // Coordinator sheet has Timestamp as "8:30:36 AM" or "11:45:12 PM"
-  if (!timestampStr) return null;
-  const s = String(timestampStr).trim();
-  const match = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
-  if (!match) return null;
-  let hour = parseInt(match[1], 10);
-  const ampm = match[4] ? match[4].toUpperCase() : null;
-  if (ampm === 'AM' && hour === 12) hour = 0;
-  if (ampm === 'PM' && hour !== 12) hour += 12;
-  if (hour < 0 || hour > 23) return null;
-  return hour;
-}
-
-function parseHourDecimal(timestampStr) {
-  // Returns a fractional hour (e.g., 8:30:36 AM = 8.51)
-  if (!timestampStr) return null;
-  const s = String(timestampStr).trim();
-  const match = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
-  if (!match) return null;
-  let hour = parseInt(match[1], 10);
-  const minute = parseInt(match[2], 10);
-  const second = match[3] ? parseInt(match[3], 10) : 0;
-  const ampm = match[4] ? match[4].toUpperCase() : null;
-  if (ampm === 'AM' && hour === 12) hour = 0;
-  if (ampm === 'PM' && hour !== 12) hour += 12;
-  if (hour < 0 || hour > 23) return null;
-  return hour + minute / 60 + second / 3600;
-}
-
-function dayKeyFromTs(ts) {
-  if (!ts) return null;
-  const d = new Date(ts);
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
-function weekKeyFromTs(ts) {
-  if (!ts) return null;
-  const d = new Date(ts);
-  const dow = d.getDay();
-  const diff = (dow + 6) % 7;
-  d.setDate(d.getDate() - diff);
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
-function monthKeyFromTs(ts) {
-  if (!ts) return null;
-  const d = new Date(ts);
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  return `${d.getFullYear()}-${m}`;
-}
-
-function getTrendBucketForRange(range) {
-  if (range === 'today' || range === 'week' || range === 'month') return 'day';
-  if (range === 'quarter') return 'week';
-  return 'month';
-}
-
-function bucketKeyFromTs(ts, bucket) {
-  if (bucket === 'week') return weekKeyFromTs(ts);
-  if (bucket === 'month') return monthKeyFromTs(ts);
-  return dayKeyFromTs(ts);
-}
-
-function bucketLabelFromKey(key, bucket) {
-  if (bucket === 'month') {
-    const [y, m] = key.split('-').map(Number);
-    const dt = new Date(y, m - 1, 1);
-    return dt.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-  }
-  const [y, m, d] = key.split('-').map(Number);
-  const dt = new Date(y, m - 1, d);
-  if (bucket === 'week') {
-    return 'Wk ' + dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }
-  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function getTrendLimit(bucket) {
-  if (bucket === 'month') return 12;
-  if (bucket === 'week') return 13;
-  return 14;
-}
-
-function getCutoffMs(range) {
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  let cutoff;
-  switch (range) {
-    case 'all': return null;
-    case 'week': {
-      cutoff = new Date(startOfToday);
-      const dow = cutoff.getDay();
-      cutoff.setDate(cutoff.getDate() - ((dow + 6) % 7));
-      break;
-    }
-    case 'month': cutoff = new Date(startOfToday); cutoff.setDate(1); break;
-    case 'quarter':
-      cutoff = new Date(startOfToday);
-      cutoff.setMonth(Math.floor(cutoff.getMonth() / 3) * 3, 1);
-      break;
-    case 'ytd': cutoff = new Date(startOfToday); cutoff.setMonth(0, 1); break;
-    case 'today':
-    default: cutoff = startOfToday;
-  }
-  return cutoff.getTime();
-}
-
-// =============================================================
-// COORDINATOR-SPECIFIC ROW FILTER
-// =============================================================
-// For "today", coordinator uses an "operating day" model:
-//   The operating day for date X runs from 1:00 AM on X to 1:00 AM on X+1.
-//   "Today" = the operating day currently in progress.
-//
-// Examples (current EST time → which operating day is "today"):
-//   9:00 AM Wed  → Wed operating day (started 1 AM Wed, ends 1 AM Thu)
-//   12:30 AM Wed → Tue operating day (started 1 AM Tue, ends 1 AM Wed; still in progress)
-//
-// This keeps each night shift fully attached to its starting day, instead of
-// splitting it at midnight.
-//
-// Used by both the Coordinator (Incoming) and Outgoing aggregations — both
-// share the same shift-overlapping-midnight pattern.
-function filterCoordRowsForRange(rows, range) {
-  if (range !== 'today') {
-    const cutoff = getCutoffMs(range);
-    return cutoff === null ? rows : rows.filter(r => r.ts >= cutoff);
+  function goToTeam(idx) {
+    const totalPages = teams.length + 2;
+    document.querySelectorAll(".team-panel").forEach(p => p.classList.remove("active"));
+    document.querySelectorAll(".team-pill").forEach(d => d.classList.remove("active"));
+    currentTeam = ((idx % totalPages) + totalPages) % totalPages;
+    const panel = document.getElementById("team-" + currentTeam);
+    if (panel) panel.classList.add("active");
+    const pills = document.querySelectorAll(".team-pill");
+    if (pills[currentTeam]) pills[currentTeam].classList.add("active");
+    resetProgress();
   }
 
-  const estNow = getEstNow();
-  const nowHourDec = getEstHourDecimal();
-
-  // Determine which operating day is "today"
-  // If current EST hour < 1.0, the operating day started YESTERDAY at 1 AM
-  // Otherwise, it started TODAY at 1 AM
-  const opDayStart = new Date(estNow.year, estNow.month - 1, estNow.day);
-  if (nowHourDec < 1.0) opDayStart.setDate(opDayStart.getDate() - 1);
-
-  const opDayStr = `${opDayStart.getFullYear()}-${String(opDayStart.getMonth()+1).padStart(2,'0')}-${String(opDayStart.getDate()).padStart(2,'0')}`;
-
-  // The next calendar day after opDayStart
-  const opDayNext = new Date(opDayStart);
-  opDayNext.setDate(opDayNext.getDate() + 1);
-  const opDayNextStr = `${opDayNext.getFullYear()}-${String(opDayNext.getMonth()+1).padStart(2,'0')}-${String(opDayNext.getDate()).padStart(2,'0')}`;
-
-  return rows.filter(r => {
-    const d = new Date(r.ts);
-    const rStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const hour = (r.hourDec !== null && r.hourDec !== undefined) ? r.hourDec
-                 : (r.hour !== null && r.hour !== undefined) ? r.hour
-                 : null;
-
-    if (rStr === opDayStr) {
-      // Row's date equals the operating day's start date.
-      // Include only if logged at or after 1:00 AM (1 AM is the boundary).
-      return hour === null ? true : hour >= 1.0;
-    }
-    if (rStr === opDayNextStr) {
-      // Row's date is the day AFTER the operating day's start.
-      // Include only if logged BEFORE 1:00 AM (those are carryover from the operating day's night shift).
-      return hour === null ? false : hour < 1.0;
-    }
-    return false;
-  });
-}
-
-// =============================================================
-// EST TIME HELPERS (for live "today" BPH calculations)
-// =============================================================
-
-// Get the current time in America/New_York as {year, month, day, hour, minute, second}
-function getEstNow() {
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false,
-  });
-  const parts = fmt.formatToParts(new Date()).reduce((acc, p) => {
-    if (p.type !== 'literal') acc[p.type] = parseInt(p.value, 10);
-    return acc;
-  }, {});
-  // Note: 'hour' might come back as 24 for midnight in some Node versions; normalize
-  if (parts.hour === 24) parts.hour = 0;
-  return parts;
-}
-
-// Returns the EST hour as a fractional number (e.g., 7.5 = 7:30 AM)
-function getEstHourDecimal() {
-  const n = getEstNow();
-  return n.hour + n.minute / 60 + n.second / 3600;
-}
-
-// Compute elapsed hours for a given coordinator shift today
-// shift: 'Day' (starts 7:30 AM) or 'Night' (starts 4:15 PM)
-// Returns hours elapsed since shift start in EST, capped at 8, floored at TODAY_BPH_FLOOR_HOURS
-function getCoordElapsedHoursToday(shift) {
-  const hourDec = getEstHourDecimal();
-  let shiftStartHour;
-  if (shift === 'Day') shiftStartHour = 7.5;     // 7:30 AM
-  else if (shift === 'Night') shiftStartHour = 16.25; // 4:15 PM
-  else return HOURS_PER_DAY; // unknown shift, fall back to flat 8
-
-  let elapsed = hourDec - shiftStartHour;
-  if (elapsed < 0) elapsed = 0; // before shift starts
-  if (elapsed > HOURS_PER_DAY) elapsed = HOURS_PER_DAY;
-  if (elapsed < TODAY_BPH_FLOOR_HOURS) elapsed = TODAY_BPH_FLOOR_HOURS;
-  return elapsed;
-}
-
-// Compute elapsed hours for a lab tech today based on their first board's hour
-// firstBoardHourDec: the hour-decimal (in EST) when this tech first logged a board today
-// If null/undefined, fall back to floor.
-function getLabElapsedHoursToday(firstBoardHourDec) {
-  if (firstBoardHourDec === null || firstBoardHourDec === undefined) {
-    return TODAY_BPH_FLOOR_HOURS;
+  function startRotation() {
+    if (browseMode || selectedTechName) return;
+    if (rotateTimer) clearInterval(rotateTimer);
+    resetProgress();
+    rotateTimer = setInterval(() => goToTeam(currentTeam + 1), TEAM_ROTATE_MS);
   }
-  const nowDec = getEstHourDecimal();
-  let elapsed = nowDec - firstBoardHourDec;
-  if (elapsed < 0) elapsed = TODAY_BPH_FLOOR_HOURS; // crossed midnight or odd state
-  if (elapsed > HOURS_PER_DAY) elapsed = HOURS_PER_DAY;
-  if (elapsed < TODAY_BPH_FLOOR_HOURS) elapsed = TODAY_BPH_FLOOR_HOURS;
-  return elapsed;
-}
 
-async function getAccessToken(credentials) {
-  const now = Math.floor(Date.now() / 1000);
-  const header = { alg: 'RS256', typ: 'JWT' };
-  const claim = {
-    iss: credentials.client_email,
-    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
-    aud: 'https://oauth2.googleapis.com/token',
-    exp: now + 3600,
-    iat: now,
-  };
+  function resetProgress() {
+    if (browseMode || selectedTechName) return;
+    if (progTimer) cancelAnimationFrame(progTimer);
+    progStart = performance.now();
+    animateProgress();
+  }
 
-  const encoder = new TextEncoder();
-  const headerB64 = base64UrlEncode(JSON.stringify(header));
-  const claimB64 = base64UrlEncode(JSON.stringify(claim));
-  const signingInput = `${headerB64}.${claimB64}`;
-  const privateKey = await importPrivateKey(credentials.private_key);
-  const signature = await crypto.subtle.sign(
-    { name: 'RSASSA-PKCS1-v1_5' }, privateKey, encoder.encode(signingInput)
-  );
-  const signatureB64 = base64UrlEncodeBuffer(signature);
-  const jwt = `${signingInput}.${signatureB64}`;
-  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
-  });
-  if (!tokenResponse.ok) throw new Error(`Token exchange failed: ${tokenResponse.status} ${await tokenResponse.text()}`);
-  return (await tokenResponse.json()).access_token;
-}
+  function animateProgress() {
+    const pb = document.getElementById("progressBar");
+    if (!pb) return;
+    const pct = Math.min(((performance.now() - progStart) / TEAM_ROTATE_MS) * 100, 100);
+    pb.style.width = pct + "%";
+    if (pct < 100) progTimer = requestAnimationFrame(animateProgress);
+  }
 
-async function importPrivateKey(pem) {
-  const pemContents = pem
-    .replace('-----BEGIN PRIVATE KEY-----', '')
-    .replace('-----END PRIVATE KEY-----', '')
-    .replace(/\s+/g, '');
-  const binaryDer = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
-  return crypto.subtle.importKey(
-    'pkcs8', binaryDer,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
-  );
-}
+  function esc(str) {
+    return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
 
-function base64UrlEncode(str) {
-  return base64UrlEncodeBuffer(new TextEncoder().encode(str));
-}
-
-function base64UrlEncodeBuffer(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
+  // ============ Boot ============
+  readUrlState();
+  fetchData();
+  setInterval(fetchData, REFRESH_MS);
+</script>
+</body>
+</html>

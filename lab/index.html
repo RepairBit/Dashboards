@@ -1581,6 +1581,100 @@
       display: flex;
       justify-content: space-between;
     }
+
+    /* Headline takeaway — the auto-generated 2-3 sentence summary at the top */
+    .pr-headline {
+      background: #f0f7ff;
+      border-left: 4px solid #2563eb;
+      padding: 12px 16px;
+      margin-bottom: 14px;
+      border-radius: 0 6px 6px 0;
+    }
+    .pr-headline.concern {
+      background: #fef3c7;
+      border-left-color: #d97706;
+    }
+    .pr-headline.alert {
+      background: #fef2f2;
+      border-left-color: #b91c1c;
+    }
+    .pr-headline.positive {
+      background: #ecfdf5;
+      border-left-color: #16803c;
+    }
+    .pr-headline-label {
+      font-size: 8pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #2563eb;
+      margin-bottom: 4px;
+    }
+    .pr-headline.concern .pr-headline-label { color: #92400e; }
+    .pr-headline.alert .pr-headline-label { color: #991b1b; }
+    .pr-headline.positive .pr-headline-label { color: #166534; }
+    .pr-headline-text {
+      font-size: 10.5pt;
+      line-height: 1.45;
+      color: #111;
+    }
+    .pr-headline-text strong { color: #111; font-weight: 700; }
+
+    /* Sparkline trio — three small trend charts in a row */
+    .pr-sparklines {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .pr-spark {
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 8px 10px 4px;
+    }
+    .pr-spark-label {
+      font-size: 8pt;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .pr-spark-label .delta {
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: none;
+      font-size: 9pt;
+    }
+    .pr-spark-label .delta.up { color: #16803c; }
+    .pr-spark-label .delta.down { color: #b91c1c; }
+    .pr-spark-label .delta.flat { color: #555; }
+    .pr-spark canvas {
+      width: 100% !important;
+      height: 60px !important;
+      display: block;
+    }
+    .pr-spark-foot {
+      font-size: 7.5pt;
+      color: #888;
+      display: flex;
+      justify-content: space-between;
+      margin-top: 2px;
+    }
+
+    /* Breakdown table — adaptive (quarterly / monthly / weekly / daily) */
+    .pr-breakdown {
+      margin-bottom: 12px;
+    }
+    .pr-breakdown table { width: 100%; }
+    .pr-breakdown td.bd-period { font-weight: 600; color: #111; }
+    .pr-breakdown td.bd-delta {
+      font-size: 8.5pt;
+      color: #555;
+    }
+    .pr-breakdown td.bd-delta.up { color: #16803c; font-weight: 600; }
+    .pr-breakdown td.bd-delta.down { color: #b91c1c; font-weight: 600; }
   }
 </style>
 </head>
@@ -3502,6 +3596,471 @@
     return '<td class="' + cls + '">#' + rank + ' of ' + total + '</td>';
   }
 
+  // ============================================================
+  // Helpers for narrative reports (v3.3+): headline takeaway,
+  // adaptive breakdown tables, and post-print sparkline rendering.
+  // ============================================================
+
+  // Decide breakdown granularity for the chosen range.
+  // For very short ranges (today/week), bucketing into smaller chunks
+  // either doesn't add information (today has no smaller-than-hourly
+  // story to tell from this data) or is too noisy. So we only render
+  // a breakdown table when the range is meaningfully long.
+  function breakdownGranularityForRange() {
+    if (pdfState.range === 'today' || pdfState.range === 'week') return null; // skip
+    if (pdfState.range === 'month') return 'week';
+    if (pdfState.range === 'quarter') return 'month';
+    if (pdfState.range === 'ytd' || pdfState.range === 'all') return 'quarter';
+    if (pdfState.range === 'custom') {
+      // Choose by span length
+      if (!pdfState.customFrom || !pdfState.customTo) return null;
+      const days = Math.round((new Date(pdfState.customTo) - new Date(pdfState.customFrom)) / 86400000) + 1;
+      if (days <= 14) return null;
+      if (days <= 45) return 'week';
+      if (days <= 120) return 'month';
+      return 'quarter';
+    }
+    return null;
+  }
+
+  // Convert a trend object {labels, pcts, bphs} into rows of
+  // {periodLabel, pct, bph} grouped at the requested granularity.
+  // The Worker already buckets trend data by day/week/month based on
+  // range — for breakdown purposes we sometimes need to aggregate those
+  // buckets further (e.g. lab-wide trend is week-buckets for YTD, but
+  // we want quarter rows). When the trend is already at the right
+  // granularity (e.g. month buckets for a quarter range), we use it as-is.
+  function trendToBreakdownRows(trend, granularity) {
+    if (!trend || !trend.labels || !granularity) return [];
+    // Best-effort: just use the trend buckets directly. They're already
+    // sorted chronologically and labeled. For YTD+ ranges the buckets
+    // are typically month-sized — we collapse pairs of three (months) into
+    // quarters when granularity asks for it. Heuristic, not perfect.
+    const rows = trend.labels.map((label, i) => ({
+      label,
+      pct: trend.pcts[i],
+      bph: trend.bphs[i],
+    }));
+    if (granularity === 'quarter' && rows.length > 5) {
+      // Group every 3 month-buckets into a quarter
+      const out = [];
+      for (let i = 0; i < rows.length; i += 3) {
+        const chunk = rows.slice(i, i + 3);
+        if (chunk.length === 0) continue;
+        const avgPct = Math.round(chunk.reduce((s, r) => s + r.pct, 0) / chunk.length);
+        const avgBph = chunk.reduce((s, r) => s + r.bph, 0) / chunk.length;
+        // Label as the first month of the chunk
+        out.push({
+          label: chunk[0].label + (chunk.length > 1 ? ' – ' + chunk[chunk.length - 1].label : ''),
+          pct: avgPct,
+          bph: Math.round(avgBph * 100) / 100,
+        });
+      }
+      return out;
+    }
+    return rows;
+  }
+
+  // Build the breakdown HTML for a trend. Pass `mode` = 'tech' | 'team' | 'lab'
+  // to control the per-period label color. Returns '' when there's no
+  // meaningful breakdown to show.
+  function buildBreakdownHTML(trend, scopeLabel) {
+    const gran = breakdownGranularityForRange();
+    if (!gran) return '';
+    const rows = trendToBreakdownRows(trend, gran);
+    if (rows.length < 2) return ''; // need at least 2 periods to be interesting
+    const periodWord = gran[0].toUpperCase() + gran.slice(1);
+    let html = '<div class="pr-section-h">' + periodWord + 'ly Breakdown — ' + scopeLabel + '</div>';
+    html += '<div class="pr-breakdown"><table class="pr-table">' +
+              '<thead><tr><th>' + periodWord + '</th><th>Repair %</th><th>BPH</th><th>Δ</th></tr></thead>' +
+              '<tbody>';
+    rows.forEach((r, idx) => {
+      let delta = '';
+      let deltaCls = '';
+      if (idx > 0) {
+        const prev = rows[idx - 1];
+        const d = r.pct - prev.pct;
+        if (Math.abs(d) >= 1) {
+          deltaCls = d > 0 ? 'up' : 'down';
+          const arrow = d > 0 ? '↑' : '↓';
+          delta = arrow + ' ' + Math.abs(d) + ' pp';
+        } else {
+          delta = '—';
+        }
+      }
+      html += '<tr>' +
+                '<td class="bd-period">' + esc(r.label) + '</td>' +
+                '<td class="' + prPctClass(r.pct) + '">' + r.pct + '%</td>' +
+                '<td class="' + prBphClass(r.bph) + '">' + fmtBPH(r.bph) + '</td>' +
+                '<td class="bd-delta ' + deltaCls + '">' + delta + '</td>' +
+              '</tr>';
+    });
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  // ============================================================
+  // Headline takeaway generator. Reads pattern-matched rules over
+  // metrics to produce a 2-3 sentence summary. Returns
+  // { tier, label, text } where tier ∈ {positive, neutral, concern, alert}.
+  // No AI — fully deterministic. Manager can override in the 1-on-1.
+  // ============================================================
+
+  function generateTechHeadline(data, tech, teamPanel, lab, ranks) {
+    const sentences = [];
+    let tier = 'neutral';
+
+    // Pull useful comparison numbers
+    const pctDelta = tech.pct - lab.pct;
+    const bphDelta = tech.bph - lab.bph;
+    const kbR = tech.kickbackRate || 0;
+    const kbN = tech.kickbacks || 0;
+    const labKbR = lab.kickbackRate || 0;
+    const labRankPct = ranks.labRankPct;
+    const labRankRep = ranks.labRankRep;
+
+    // Volume framing
+    if (labRankRep && labRankRep.rank <= 5) {
+      sentences.push('<strong>' + esc(tech.name) + '</strong> is a top-volume contributor — ranked #' + labRankRep.rank + ' of ' + labRankRep.total + ' in the lab for total repairs.');
+    } else if (labRankRep && labRankRep.rank <= Math.ceil(labRankRep.total * 0.25)) {
+      sentences.push('<strong>' + esc(tech.name) + '</strong> handled <strong>' + tech.touches + ' touches</strong> over this period — top quartile for volume in the lab.');
+    } else if (labRankRep && labRankRep.rank >= labRankRep.total - 4) {
+      sentences.push('<strong>' + esc(tech.name) + '</strong> has been one of the lower-volume techs this period — ranked #' + labRankRep.rank + ' of ' + labRankRep.total + ' in total repairs.');
+    } else {
+      sentences.push('<strong>' + esc(tech.name) + '</strong> handled ' + tech.touches + ' touches over this period.');
+    }
+
+    // Quality framing
+    if (kbN > 0 && kbR > labKbR + 4) {
+      tier = 'concern';
+      sentences.push('<strong>Quality is below average</strong>: kickback rate of ' + fmtRate(kbR) + '% is ' + (Math.round((kbR - labKbR) * 10) / 10) + ' pp above the lab average of ' + fmtRate(labKbR) + '%.');
+      if (kbR > labKbR + 10) tier = 'alert';
+    } else if (kbN === 0 && tech.repairs >= 20) {
+      sentences.push('<strong>Quality is excellent</strong>: zero kickbacks on ' + tech.repairs + ' marked repairs.');
+      if (pctDelta >= 0 && bphDelta >= 0) tier = 'positive';
+    } else if (kbR > 0 && kbR <= labKbR) {
+      sentences.push('Quality is on par with or better than the lab — kickback rate of ' + fmtRate(kbR) + '% vs lab avg ' + fmtRate(labKbR) + '%.');
+    }
+
+    // Repair % framing
+    if (Math.abs(pctDelta) >= 3) {
+      const dir = pctDelta > 0 ? 'above' : 'below';
+      const ppPretty = Math.round(Math.abs(pctDelta) * 10) / 10;
+      sentences.push('Repair % of <strong>' + tech.pct + '%</strong> is ' + ppPretty + ' pp ' + dir + ' lab average.');
+      if (pctDelta <= -8 && tier !== 'alert') tier = 'concern';
+      if (pctDelta >= 8 && tier === 'neutral') tier = 'positive';
+    }
+
+    // Trend framing — only if we have enough trend data to compare start vs end
+    if (tech.trend && tech.trend.pcts && tech.trend.pcts.length >= 3) {
+      const pcts = tech.trend.pcts;
+      const firstHalf = pcts.slice(0, Math.ceil(pcts.length / 2));
+      const lastHalf = pcts.slice(Math.floor(pcts.length / 2));
+      const firstAvg = firstHalf.reduce((s, v) => s + v, 0) / firstHalf.length;
+      const lastAvg = lastHalf.reduce((s, v) => s + v, 0) / lastHalf.length;
+      const shift = Math.round((lastAvg - firstAvg) * 10) / 10;
+      if (Math.abs(shift) >= 5) {
+        const dir = shift > 0 ? 'improving' : 'declining';
+        sentences.push('Trend is <strong>' + dir + '</strong> over the period: Repair % moved from ' + Math.round(firstAvg) + '% (early) to ' + Math.round(lastAvg) + '% (recent), a shift of ' + (shift > 0 ? '+' : '') + shift + ' pp.');
+        if (shift <= -8 && tier === 'neutral') tier = 'concern';
+        if (shift >= 8 && tier === 'neutral') tier = 'positive';
+      }
+    }
+
+    const labels = {
+      positive: 'Strong Performer',
+      neutral: 'Summary',
+      concern: 'Manager Attention',
+      alert: 'Action Needed',
+    };
+    return { tier, label: labels[tier], text: sentences.join(' ') };
+  }
+
+  function generateTeamHeadline(data, panel, lab) {
+    const sentences = [];
+    let tier = 'neutral';
+    const pctDelta = panel.pct - lab.pct;
+    const bphDelta = panel.bph - lab.bph;
+    const kbR = panel.kickbackRate || 0;
+    const labKbR = lab.kickbackRate || 0;
+
+    // How does the team rank among teams?
+    const teamRank = (data.teamSummaries || [])
+      .filter(t => (t.name || '').toLowerCase().trim() !== 'terminated')
+      .slice().sort((a, b) => b.pct - a.pct);
+    const myIdx = teamRank.findIndex(t => t.name === panel.name);
+    const teamRankPos = myIdx >= 0 ? (myIdx + 1) : null;
+    const teamCount = teamRank.length;
+
+    if (teamRankPos && teamRankPos === 1) {
+      sentences.push('<strong>' + esc(panel.name) + '</strong> is the <strong>top-performing team</strong> in the lab by Repair % — ' + panel.pct + '% vs lab avg ' + lab.pct + '%.');
+      tier = 'positive';
+    } else if (teamRankPos && teamRankPos <= 2 && teamCount >= 4) {
+      sentences.push('<strong>' + esc(panel.name) + '</strong> ranks <strong>#' + teamRankPos + ' of ' + teamCount + '</strong> teams by Repair % at ' + panel.pct + '%.');
+      if (pctDelta > 0) tier = 'positive';
+    } else if (teamRankPos && teamRankPos === teamCount && teamCount >= 3) {
+      sentences.push('<strong>' + esc(panel.name) + '</strong> is the <strong>lowest-ranking team</strong> by Repair % at ' + panel.pct + '%, vs lab avg ' + lab.pct + '%.');
+      tier = 'concern';
+    } else if (teamRankPos) {
+      sentences.push('<strong>' + esc(panel.name) + '</strong> ranks #' + teamRankPos + ' of ' + teamCount + ' teams by Repair % at ' + panel.pct + '%.');
+    }
+
+    // Team-wide kickback story
+    if (kbR > labKbR + 3 && panel.kickbacks > 0) {
+      sentences.push('Team-wide quality is a concern — kickback rate of ' + fmtRate(kbR) + '% is above the lab average of ' + fmtRate(labKbR) + '%.');
+      if (tier === 'neutral') tier = 'concern';
+      if (kbR > labKbR + 8) tier = 'alert';
+    } else if (panel.kickbacks === 0) {
+      sentences.push('Zero team kickbacks in this period.');
+    }
+
+    // Spread inside the team
+    const techs = (panel.techs || []);
+    if (techs.length >= 3) {
+      const pcts = techs.map(t => t.pct);
+      const high = Math.max(...pcts), low = Math.min(...pcts);
+      if (high - low >= 30) {
+        sentences.push('Wide internal spread — top tech is at ' + high + '%, bottom at ' + low + '%. Worth investigating consistency.');
+      }
+    }
+
+    const labels = {
+      positive: 'Strong Team',
+      neutral: 'Team Summary',
+      concern: 'Manager Attention',
+      alert: 'Action Needed',
+    };
+    return { tier, label: labels[tier], text: sentences.join(' ') };
+  }
+
+  function generateLabHeadline(data) {
+    const sentences = [];
+    let tier = 'neutral';
+    const lab = data.summary;
+
+    sentences.push('Lab processed <strong>' + lab.touches.toLocaleString() + ' touches</strong> across ' + lab.techDays + ' tech-days, with a Repair % of <strong>' + lab.pct + '%</strong> and BPH of <strong>' + fmtBPH(lab.bph) + '</strong>.');
+
+    // Kickback story at lab level
+    if (lab.kickbacks > 0) {
+      const labKbR = lab.kickbackRate || 0;
+      if (labKbR < 5) {
+        sentences.push('Lab-wide kickback rate is healthy at ' + fmtRate(labKbR) + '%.');
+        tier = 'positive';
+      } else if (labKbR < 12) {
+        sentences.push('Lab kickback rate of ' + fmtRate(labKbR) + '% is in normal range.');
+      } else {
+        sentences.push('<strong>Lab kickback rate of ' + fmtRate(labKbR) + '%</strong> warrants attention.');
+        tier = 'concern';
+      }
+    }
+
+    // Lab-wide trend
+    if (data.trend && data.trend.pcts && data.trend.pcts.length >= 3) {
+      const pcts = data.trend.pcts;
+      const firstHalf = pcts.slice(0, Math.ceil(pcts.length / 2));
+      const lastHalf = pcts.slice(Math.floor(pcts.length / 2));
+      const firstAvg = firstHalf.reduce((s, v) => s + v, 0) / firstHalf.length;
+      const lastAvg = lastHalf.reduce((s, v) => s + v, 0) / lastHalf.length;
+      const shift = Math.round((lastAvg - firstAvg) * 10) / 10;
+      if (Math.abs(shift) >= 4) {
+        const dir = shift > 0 ? 'improving' : 'declining';
+        sentences.push('Lab Repair % is <strong>' + dir + '</strong> — from ' + Math.round(firstAvg) + '% early in period to ' + Math.round(lastAvg) + '% recent.');
+        if (shift <= -6 && tier === 'neutral') tier = 'concern';
+        if (shift >= 6 && tier === 'neutral') tier = 'positive';
+      }
+    }
+
+    const labels = {
+      positive: 'Lab Health: Strong',
+      neutral: 'Lab Summary',
+      concern: 'Lab Attention',
+      alert: 'Lab Alert',
+    };
+    return { tier, label: labels[tier], text: sentences.join(' ') };
+  }
+
+  function headlineHTML(headline) {
+    return '<div class="pr-headline ' + headline.tier + '">' +
+             '<div class="pr-headline-label">' + esc(headline.label) + '</div>' +
+             '<div class="pr-headline-text">' + headline.text + '</div>' +
+           '</div>';
+  }
+
+  // ============================================================
+  // Sparkline renderer. Three side-by-side small Chart.js charts:
+  // Repair %, BPH, and Volume per bucket. Rendered AFTER the
+  // print HTML is in the DOM but BEFORE window.print() fires.
+  // Returns array of Chart instances so caller can destroy() them
+  // after printing.
+  // ============================================================
+
+  function renderTechSparklines(tech, lab, containerId) {
+    if (!tech.trend || !tech.trend.labels || tech.trend.labels.length === 0) return [];
+    const charts = [];
+    const labels = tech.trend.labels;
+
+    function commonOpts(extraScales) {
+      return {
+        responsive: false,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: false },
+        },
+        scales: Object.assign({
+          x: { display: false, grid: { display: false } },
+          y: { display: false, grid: { display: false }, beginAtZero: true },
+        }, extraScales || {}),
+        elements: {
+          point: { radius: 0 },
+          line: { borderWidth: 1.5, tension: 0.2 },
+        },
+      };
+    }
+
+    // Repair %
+    const pctCanvas = document.getElementById(containerId + '-pct');
+    if (pctCanvas) {
+      // Add a horizontal lab-average line via a synthetic dataset
+      const labAvg = lab.pct;
+      const labLine = labels.map(() => labAvg);
+      charts.push(new Chart(pctCanvas, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { data: labLine, borderColor: '#aaa', borderDash: [3, 3], borderWidth: 1, pointRadius: 0 },
+            { data: tech.trend.pcts, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.1)', fill: true },
+          ],
+        },
+        options: commonOpts({ y: { display: false, beginAtZero: true, max: 100 } }),
+      }));
+    }
+
+    // BPH
+    const bphCanvas = document.getElementById(containerId + '-bph');
+    if (bphCanvas) {
+      const labLine = labels.map(() => lab.bph);
+      charts.push(new Chart(bphCanvas, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { data: labLine, borderColor: '#aaa', borderDash: [3, 3], borderWidth: 1, pointRadius: 0 },
+            { data: tech.trend.bphs, borderColor: '#16803c', backgroundColor: 'rgba(22,128,60,0.1)', fill: true },
+          ],
+        },
+        options: commonOpts(),
+      }));
+    }
+
+    // Volume bar chart (using bph * hours per bucket isn't directly available,
+    // so we approximate "activity" by per-bucket pct values transformed into
+    // a relative volume signal. Honestly, since we don't have per-bucket touch
+    // counts in the trend object, we'll show pct again with a different visual
+    // style as a "consistency" indicator rather than volume).
+    // Better: skip the 3rd sparkline if we don't have volume data, OR use
+    // BPH as a proxy for activity (a tech doing many boards per hour is busy).
+    // We chose to show "Repair % vs lab" gap as the 3rd indicator —
+    // visualizes whether they're above or below lab average across time.
+    const volCanvas = document.getElementById(containerId + '-vol');
+    if (volCanvas) {
+      // gap = tech.pct - lab.pct per bucket
+      const gap = tech.trend.pcts.map(p => p - lab.pct);
+      // Pick color based on whether average gap is positive or negative
+      const avgGap = gap.reduce((s, v) => s + v, 0) / gap.length;
+      const gapColor = avgGap >= 0 ? '#16803c' : '#b91c1c';
+      const gapFill = avgGap >= 0 ? 'rgba(22,128,60,0.15)' : 'rgba(185,28,28,0.12)';
+      charts.push(new Chart(volCanvas, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            data: gap,
+            backgroundColor: gap.map(v => v >= 0 ? gapFill : 'rgba(185,28,28,0.15)'),
+            borderColor: gap.map(v => v >= 0 ? '#16803c' : '#b91c1c'),
+            borderWidth: 1,
+          }],
+        },
+        options: commonOpts({ y: { display: false, beginAtZero: false } }),
+      }));
+    }
+
+    return charts;
+  }
+
+  function renderTeamSparklines(panel, lab, containerId) {
+    // Team trend isn't pre-computed; approximate from techs' trends.
+    // Aggregate by averaging non-zero pcts at each bucket position.
+    const techs = (panel.techs || []).filter(t => t.trend && t.trend.labels && t.trend.labels.length);
+    if (techs.length === 0) return [];
+
+    // Use first tech's labels as reference (they should all match for a
+    // given range since the Worker uses the same bucketing).
+    const labels = techs[0].trend.labels;
+    const pcts = [];
+    const bphs = [];
+    for (let i = 0; i < labels.length; i++) {
+      let pSum = 0, pN = 0, bSum = 0, bN = 0;
+      techs.forEach(t => {
+        if (t.trend.pcts && t.trend.pcts[i] !== undefined) { pSum += t.trend.pcts[i]; pN++; }
+        if (t.trend.bphs && t.trend.bphs[i] !== undefined) { bSum += t.trend.bphs[i]; bN++; }
+      });
+      pcts.push(pN > 0 ? Math.round(pSum / pN) : 0);
+      bphs.push(bN > 0 ? bSum / bN : 0);
+    }
+
+    const fakeTech = { trend: { labels, pcts, bphs }, pct: panel.pct, bph: panel.bph };
+    return renderTechSparklines(fakeTech, lab, containerId);
+  }
+
+  function renderLabSparklines(data, containerId) {
+    const lab = data.summary;
+    const trend = data.trend;
+    if (!trend || !trend.labels) return [];
+    const fakeTech = { trend, pct: lab.pct, bph: lab.bph };
+    return renderTechSparklines(fakeTech, lab, containerId);
+  }
+
+  function sparklinesHTML(idPrefix, deltaPct, deltaBph) {
+    function deltaSpan(d, suffix) {
+      if (Math.abs(d) < 0.5) return '<span class="delta flat">— flat</span>';
+      const cls = d > 0 ? 'up' : 'down';
+      const arrow = d > 0 ? '↑' : '↓';
+      const v = Math.round(Math.abs(d) * 10) / 10;
+      return '<span class="delta ' + cls + '">' + arrow + ' ' + v + ' ' + suffix + '</span>';
+    }
+    return '<div class="pr-sparklines">' +
+             '<div class="pr-spark">' +
+               '<div class="pr-spark-label"><span>Repair % over period</span>' + (deltaPct !== undefined ? deltaSpan(deltaPct, 'pp') : '') + '</div>' +
+               '<canvas id="' + idPrefix + '-pct"></canvas>' +
+               '<div class="pr-spark-foot"><span>early</span><span>recent</span></div>' +
+             '</div>' +
+             '<div class="pr-spark">' +
+               '<div class="pr-spark-label"><span>BPH over period</span>' + (deltaBph !== undefined ? deltaSpan(deltaBph, '') : '') + '</div>' +
+               '<canvas id="' + idPrefix + '-bph"></canvas>' +
+               '<div class="pr-spark-foot"><span>early</span><span>recent</span></div>' +
+             '</div>' +
+             '<div class="pr-spark">' +
+               '<div class="pr-spark-label"><span>Repair % vs lab gap</span></div>' +
+               '<canvas id="' + idPrefix + '-vol"></canvas>' +
+               '<div class="pr-spark-foot"><span>bars above 0 = above lab</span><span></span></div>' +
+             '</div>' +
+           '</div>';
+  }
+
+  // Compute first-half vs second-half deltas for a trend (used by sparkline labels)
+  function trendShift(trend, metric) {
+    if (!trend || !trend[metric] || trend[metric].length < 2) return 0;
+    const vals = trend[metric];
+    const firstHalf = vals.slice(0, Math.ceil(vals.length / 2));
+    const lastHalf = vals.slice(Math.floor(vals.length / 2));
+    const firstAvg = firstHalf.reduce((s, v) => s + v, 0) / firstHalf.length;
+    const lastAvg = lastHalf.reduce((s, v) => s + v, 0) / lastHalf.length;
+    return Math.round((lastAvg - firstAvg) * 100) / 100;
+  }
+
   // ---------- LAB-WIDE REPORT ----------
   function renderLabReport(data) {
     const lab = data.summary;
@@ -3514,6 +4073,11 @@
 
     let html = '';
 
+    // Headline + lab-wide trend deltas
+    const labHeadline = generateLabHeadline(data);
+    const labPctShift = trendShift(data.trend, 'pcts');
+    const labBphShift = trendShift(data.trend, 'bphs');
+
     // ===== Page 1: Executive Summary =====
     html += '<div class="pr-page">';
     html += '<div class="pr-header">' +
@@ -3521,6 +4085,9 @@
               '<div class="pr-title">Lab Performance Report</div>' +
               '<div class="pr-subtitle"><strong>Scope:</strong> Entire Lab · <strong>Period:</strong> ' + esc(rangeLabel()) + '</div>' +
             '</div>';
+
+    // Headline takeaway
+    html += headlineHTML(labHeadline);
 
     // Headline KPIs
     html += '<div class="pr-kpis">';
@@ -3538,6 +4105,12 @@
               '<div class="pr-kpi-sub">' + (lab.kickbacks ? fmtRate(lab.kickbackRate || 0) + '% rate' : 'No kickbacks this period') + '</div>' +
             '</div>';
     html += '</div>';
+
+    // Lab sparkline trio (if trend data is present)
+    if (data.trend && data.trend.labels && data.trend.labels.length >= 2) {
+      html += '<div class="pr-section-h">Performance Trends</div>';
+      html += sparklinesHTML('spark-lab', labPctShift, labBphShift);
+    }
 
     // Activity stats (compact row)
     html += '<div class="pr-section-h">Activity Summary</div>';
@@ -3668,7 +4241,11 @@
             '</div>';
     html += '</div>'; // page 3
 
-    return { html, filename: 'RepairBit_Lab_Report_' + rangeFilenameSafe() };
+    return {
+      html,
+      filename: 'RepairBit_Lab_Report_' + rangeFilenameSafe(),
+      sparklineSetup: () => renderLabSparklines(data, 'spark-lab'),
+    };
   }
 
   function findTeamForTech(data, techName) {
@@ -3684,6 +4261,29 @@
     const techs = (panel.techs || []).slice().sort((a, b) => b.pct - a.pct);
     const lab = data.summary;
 
+    // Headline takeaway for the team
+    const headline = generateTeamHeadline(data, panel, lab);
+
+    // Approximate team trend for sparklines (averaged from per-tech trends)
+    const techsWithTrend = (panel.techs || []).filter(t => t.trend && t.trend.labels && t.trend.labels.length);
+    let teamTrendDelta = { pct: 0, bph: 0 };
+    if (techsWithTrend.length > 0) {
+      const labels = techsWithTrend[0].trend.labels;
+      const pcts = [], bphs = [];
+      for (let i = 0; i < labels.length; i++) {
+        let pS = 0, pN = 0, bS = 0, bN = 0;
+        techsWithTrend.forEach(t => {
+          if (t.trend.pcts[i] !== undefined) { pS += t.trend.pcts[i]; pN++; }
+          if (t.trend.bphs[i] !== undefined) { bS += t.trend.bphs[i]; bN++; }
+        });
+        pcts.push(pN > 0 ? pS / pN : 0);
+        bphs.push(bN > 0 ? bS / bN : 0);
+      }
+      const fakeTrend = { labels, pcts, bphs };
+      teamTrendDelta.pct = trendShift(fakeTrend, 'pcts');
+      teamTrendDelta.bph = trendShift(fakeTrend, 'bphs');
+    }
+
     let html = '';
 
     // ===== Page 1: Team Overview =====
@@ -3693,6 +4293,9 @@
               '<div class="pr-title">' + esc(teamName) + ' Performance Report</div>' +
               '<div class="pr-subtitle"><strong>Period:</strong> ' + esc(rangeLabel()) + ' · ' + (panel.techs || []).length + ' techs</div>' +
             '</div>';
+
+    // Headline takeaway
+    html += headlineHTML(headline);
 
     // KPIs with vs-lab comparison
     html += '<div class="pr-kpis">';
@@ -3711,6 +4314,12 @@
               '<div class="pr-kpi-sub">' + (teamKb === 0 ? 'No kickbacks' : fmtRate(teamKbR) + '% rate · lab avg ' + fmtRate(lab.kickbackRate || 0) + '%') + '</div>' +
             '</div>';
     html += '</div>';
+
+    // Team sparkline trio (if we have trend data)
+    if (techsWithTrend.length > 0) {
+      html += '<div class="pr-section-h">Performance Trends</div>';
+      html += sparklinesHTML('spark-team', teamTrendDelta.pct, teamTrendDelta.bph);
+    }
 
     // Activity summary
     html += '<div class="pr-section-h">Activity Summary</div>';
@@ -3778,7 +4387,11 @@
             '</div>';
     html += '</div>'; // page 2
 
-    return { html, filename: 'RepairBit_' + teamName.replace(/\s+/g, '_') + '_Report_' + rangeFilenameSafe() };
+    return {
+      html,
+      filename: 'RepairBit_' + teamName.replace(/\s+/g, '_') + '_Report_' + rangeFilenameSafe(),
+      sparklineSetup: () => renderTeamSparklines(panel, lab, 'spark-team'),
+    };
   }
 
   // ---------- SINGLE TECH REPORT ----------
@@ -3800,6 +4413,15 @@
     const labRankPct  = computeRankInPool(labPool,  techName, 'pct');
     const labRankBph  = computeRankInPool(labPool,  techName, 'bph');
 
+    // Headline takeaway — auto-generated story-level summary
+    const headline = generateTechHeadline(data, tech, teamPanel, lab, {
+      labRankPct, labRankRep,
+    });
+
+    // Trend deltas for sparkline labels
+    const pctShift = trendShift(tech.trend, 'pcts');
+    const bphShift = trendShift(tech.trend, 'bphs');
+
     let html = '';
 
     // ===== Page 1: The Decision Page =====
@@ -3809,6 +4431,9 @@
               '<div class="pr-title">' + esc(tech.name) + '</div>' +
               '<div class="pr-subtitle"><strong>' + esc(tech.level || 'Lab Tech') + '</strong> · <strong>' + esc(teamName) + '</strong> · ' + (tech.techDays || 0) + ' active day' + ((tech.techDays || 0) === 1 ? '' : 's') + ' in ' + esc(rangeLabel()) + '</div>' +
             '</div>';
+
+    // Headline takeaway — the "tell me what's going on" sentence
+    html += headlineHTML(headline);
 
     // KPIs with vs-team and vs-lab comparison
     html += '<div class="pr-kpis">';
@@ -3828,6 +4453,13 @@
             '</div>';
     html += '</div>';
 
+    // Sparkline trio — only render the placeholder HTML here; chart drawing
+    // happens after DOM insertion via the sparklineSetup callback below.
+    if (tech.trend && tech.trend.labels && tech.trend.labels.length >= 2) {
+      html += '<div class="pr-section-h">Performance Trends</div>';
+      html += sparklinesHTML('spark-tech', pctShift, bphShift);
+    }
+
     // Rank Breakdown
     html += '<div class="pr-section-h">Rank Breakdown</div>';
     html += '<div class="pr-rank">' +
@@ -3843,7 +4475,6 @@
 
     // Outcomes
     html += '<div class="pr-section-h">Outcomes</div>';
-    const repairable = tech.touches - tech.falseAsics;
     html += '<div class="pr-outcomes">' +
               '<div class="pr-outcome"><div class="pr-outcome-label">Touches</div><div class="pr-outcome-value">' + tech.touches + '</div></div>' +
               '<div class="pr-outcome"><div class="pr-outcome-label">Repairs</div><div class="pr-outcome-value">' + tech.repairs + '</div></div>' +
@@ -3852,18 +4483,8 @@
               '<div class="pr-outcome"><div class="pr-outcome-label">Graveyards</div><div class="pr-outcome-value">' + tech.graveyards + '</div></div>' +
             '</div>';
 
-    // Activity stats
-    const touchesPerDay = (tech.techDays > 0) ? (tech.touches / tech.techDays).toFixed(1) : '—';
-    html += '<div class="pr-section-h">Activity Summary</div>';
-    html += '<table class="pr-table"><thead><tr>' +
-              '<th>Active Days</th><th>Touches / Day</th><th>Repairable</th><th>Net Repairs</th><th>Kickback Rate</th>' +
-            '</tr></thead><tbody><tr>' +
-              '<td>' + (tech.techDays || 0) + '</td>' +
-              '<td>' + touchesPerDay + '</td>' +
-              '<td>' + repairable + '</td>' +
-              '<td>' + Math.max(0, tech.repairs - kbN) + '</td>' +
-              '<td class="' + (kbN === 0 ? 'muted' : prKbClass(kbR, kbN)) + '">' + (kbN === 0 ? '—' : fmtRate(kbR) + '%') + '</td>' +
-            '</tr></tbody></table>';
+    // Adaptive breakdown table (replaces the old redundant Activity Summary)
+    html += buildBreakdownHTML(tech.trend, esc(tech.name));
 
     // Optional callout for quality concerns
     if (kbR > 25 && kbN >= 2) {
@@ -3877,7 +4498,11 @@
             '</div>';
     html += '</div>'; // page 1
 
-    return { html, filename: 'RepairBit_' + tech.name.replace(/\s+/g, '_') + '_Report_' + rangeFilenameSafe() };
+    return {
+      html,
+      filename: 'RepairBit_' + tech.name.replace(/\s+/g, '_') + '_Report_' + rangeFilenameSafe(),
+      sparklineSetup: () => renderTechSparklines(tech, lab, 'spark-tech'),
+    };
   }
 
   // ============================================================
@@ -3910,7 +4535,19 @@
     }
 
     // Inject the report HTML
-    document.getElementById('printContainer').innerHTML = result.html;
+    const container = document.getElementById('printContainer');
+    container.innerHTML = result.html;
+
+    // Render any sparklines into freshly-mounted canvases. Chart.js can't
+    // render into a display:none canvas (size would be 0×0), so we briefly
+    // position the print container off-screen but visible so canvases have
+    // real dimensions to draw against. The print stylesheet will reset
+    // positioning when @media print kicks in.
+    let sparkCharts = [];
+    if (typeof result.sparklineSetup === 'function') {
+      container.style.cssText = 'display:block;position:absolute;left:-9999px;top:0;width:7.5in;visibility:visible;';
+      try { sparkCharts = result.sparklineSetup() || []; } catch (e) { console.error('Sparkline render failed:', e); }
+    }
 
     // Set page title to drive the browser's default "Save as PDF" filename
     const originalTitle = document.title;
@@ -3919,20 +4556,24 @@
     // Close picker so it doesn't interfere
     closePdfPicker();
 
-    // Fire print after a short delay so the DOM and CSS have time to apply
+    // Fire print after a short delay so the DOM, CSS, and charts all settle
     setTimeout(() => {
       window.print();
       // Restore after the user closes the print dialog (or after a fallback timeout)
       const restore = () => {
         document.title = originalTitle;
-        document.getElementById('printContainer').innerHTML = '';
+        // Destroy any chart instances we created
+        sparkCharts.forEach(c => { try { c.destroy(); } catch(e) {} });
+        sparkCharts = [];
+        container.style.cssText = '';
+        container.innerHTML = '';
         if (wasInPresentation) startRotation();
         window.removeEventListener('afterprint', restore);
       };
       window.addEventListener('afterprint', restore);
       // Fallback for browsers without afterprint
       setTimeout(restore, 60000);
-    }, 100);
+    }, 250);
   }
 
   // ============ Boot ============

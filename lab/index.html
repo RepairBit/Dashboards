@@ -1065,6 +1065,523 @@
   .tech-detail-stat-num.grave      { color: var(--grave); }
   .tech-detail-stat-num.kickback   { color: var(--kickback); }
   .tech-detail-stat-num.muted-zero { color: var(--muted-2); }
+
+  /* ============================================================
+     PDF PICKER (screen) — opens from the Download PDF header button
+     ============================================================ */
+  .pdf-wrap { position: relative; }
+  .download-pdf-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px 7px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-2);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .download-pdf-btn:hover { border-color: var(--border-strong); background: #222226; color: var(--text); }
+  .download-pdf-btn.active {
+    background: rgba(224,122,26,0.12);
+    border-color: rgba(224,122,26,0.4);
+    color: var(--brand);
+  }
+  .pdf-icon { font-size: 13px; line-height: 1; }
+
+  .pdf-picker {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 200;
+    width: 380px;
+    max-height: 600px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.7);
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .pdf-picker.open { display: flex; }
+  .pdf-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .pdf-picker-close {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+    transition: color 0.15s;
+  }
+  .pdf-picker-close:hover { color: var(--text); }
+  .pdf-picker-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px;
+    position: relative;
+  }
+  .pdf-picker-body::-webkit-scrollbar { width: 6px; }
+  .pdf-picker-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .pdf-step { margin-bottom: 16px; }
+  .pdf-step-label {
+    font-size: 10px;
+    color: var(--muted-2);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 8px;
+  }
+  .pdf-range-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .pdf-range-btn {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--muted);
+    padding: 5px 10px;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .pdf-range-btn:hover { color: var(--text-2); border-color: var(--border-strong); }
+  .pdf-range-btn.active {
+    background: rgba(224,122,26,0.15);
+    border-color: rgba(224,122,26,0.5);
+    color: var(--brand);
+  }
+  .pdf-custom-row {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .pdf-custom-row.open { display: flex; }
+  .pdf-date-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    padding: 5px 8px;
+    font-family: inherit;
+    font-size: 11px;
+    color-scheme: dark;
+  }
+  .pdf-arrow { color: var(--muted-2); font-size: 11px; }
+
+  .pdf-scope-list, .pdf-tech-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px;
+  }
+  .pdf-scope-list::-webkit-scrollbar, .pdf-tech-list::-webkit-scrollbar { width: 6px; }
+  .pdf-scope-list::-webkit-scrollbar-thumb, .pdf-tech-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .pdf-scope-item, .pdf-tech-item {
+    padding: 7px 12px;
+    font-size: 12px;
+    color: var(--text-2);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background 0.1s;
+  }
+  .pdf-scope-item:hover, .pdf-tech-item:hover { background: var(--surface-2); }
+  .pdf-scope-item.selected, .pdf-tech-item.selected {
+    background: rgba(224,122,26,0.15);
+    color: var(--brand);
+    font-weight: 600;
+  }
+  .pdf-scope-item.lab-wide {
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+    padding-bottom: 9px;
+    font-weight: 600;
+  }
+  .pdf-scope-item.terminated {
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+    padding-top: 9px;
+    color: var(--red);
+  }
+  .pdf-item-count {
+    font-size: 10px;
+    color: var(--muted-2);
+  }
+  .pdf-tech-item .pdf-item-count { color: var(--muted-2); }
+  .pdf-tech-item.terminated .name { color: var(--muted); text-decoration: line-through; }
+  .pdf-tech-item.terminated .pdf-item-count { color: var(--red); font-style: italic; }
+  .pdf-tech-all {
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+    padding-bottom: 9px;
+    font-weight: 600;
+  }
+
+  .pdf-loading {
+    padding: 16px;
+    text-align: center;
+    color: var(--muted-2);
+    font-size: 12px;
+  }
+  .pdf-loading-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(19,19,22,0.85);
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 10px;
+    color: var(--text-2);
+    font-size: 12px;
+    z-index: 10;
+  }
+  .pdf-loading-overlay.show { display: flex; }
+  .pdf-spinner {
+    width: 22px; height: 22px;
+    border: 2px solid var(--border);
+    border-top-color: var(--brand);
+    border-radius: 50%;
+    animation: pdf-spin 0.8s linear infinite;
+  }
+  @keyframes pdf-spin { to { transform: rotate(360deg); } }
+
+  .pdf-picker-footer {
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .pdf-status {
+    font-size: 11px;
+    color: var(--muted-2);
+    flex: 1;
+  }
+  .pdf-status.ready { color: var(--green); }
+  .pdf-generate-btn {
+    padding: 8px 16px;
+    background: var(--brand);
+    border: 1px solid var(--brand);
+    border-radius: 6px;
+    color: var(--bg);
+    font-size: 12px;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.15s;
+  }
+  .pdf-generate-btn:hover:not(:disabled) { filter: brightness(1.1); }
+  .pdf-generate-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ============================================================
+     PRINT CONTAINER (on screen — hidden by default)
+     ============================================================ */
+  .print-container { display: none; }
+
+  /* ============================================================
+     PRINT STYLESHEET — kicks in for both physical print and Save-as-PDF
+     ============================================================ */
+  @media print {
+    @page {
+      size: letter portrait;
+      margin: 0.5in 0.5in 0.6in 0.5in;
+    }
+
+    /* Hide everything except the print container */
+    body * { visibility: hidden !important; }
+    .print-container, .print-container * { visibility: visible !important; }
+    .print-container {
+      display: block !important;
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+    }
+
+    /* Flip to a clean light theme */
+    html, body, .print-container {
+      background: #fff !important;
+      color: #111 !important;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* Report page layout */
+    .pr-page {
+      page-break-after: always;
+      padding: 0;
+    }
+    .pr-page:last-child { page-break-after: auto; }
+
+    .pr-header {
+      border-bottom: 2px solid #111;
+      padding-bottom: 10px;
+      margin-bottom: 16px;
+    }
+    .pr-header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 4px;
+    }
+    .pr-brand {
+      font-size: 11pt;
+      font-weight: 700;
+      color: #E07A1A;
+    }
+    .pr-gen {
+      font-size: 9pt;
+      color: #666;
+    }
+    .pr-title {
+      font-size: 22pt;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 2px;
+    }
+    .pr-subtitle {
+      font-size: 11pt;
+      color: #444;
+    }
+    .pr-subtitle strong { color: #111; }
+
+    /* Headline KPI strip */
+    .pr-kpis {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .pr-kpi {
+      border: 1px solid #999;
+      border-radius: 6px;
+      padding: 10px 14px;
+    }
+    .pr-kpi-label {
+      font-size: 9pt;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .pr-kpi-value {
+      font-size: 22pt;
+      font-weight: 700;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .pr-kpi-value.good { color: #16803c; }
+    .pr-kpi-value.ok { color: #b45309; }
+    .pr-kpi-value.bad { color: #b91c1c; }
+    .pr-kpi-sub {
+      font-size: 9pt;
+      color: #555;
+      margin-top: 4px;
+    }
+    .pr-kpi-sub .delta-up { color: #16803c; font-weight: 600; }
+    .pr-kpi-sub .delta-down { color: #b91c1c; font-weight: 600; }
+    .pr-kpi-sub .delta-flat { color: #555; }
+
+    /* Section heading */
+    .pr-section-h {
+      font-size: 11pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #111;
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 4px;
+      margin: 14px 0 10px;
+    }
+
+    /* Tables */
+    .pr-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10pt;
+      font-variant-numeric: tabular-nums;
+    }
+    .pr-table th {
+      text-align: left;
+      font-weight: 600;
+      font-size: 9pt;
+      color: #555;
+      padding: 5px 8px;
+      border-bottom: 1px solid #999;
+      background: #f5f5f5;
+    }
+    .pr-table th:not(:first-child) { text-align: right; }
+    .pr-table td {
+      padding: 5px 8px;
+      border-bottom: 1px solid #eee;
+    }
+    .pr-table td:not(:first-child) { text-align: right; }
+    .pr-table tr:last-child td { border-bottom: none; }
+    .pr-table tr.highlight td { background: #fff8ec; font-weight: 600; }
+    .pr-table .good { color: #16803c; font-weight: 600; }
+    .pr-table .ok { color: #b45309; font-weight: 600; }
+    .pr-table .bad { color: #b91c1c; font-weight: 600; }
+    .pr-table .muted { color: #888; }
+    .pr-table .terminated { color: #b91c1c; text-decoration: line-through; }
+
+    /* Rank table (in tech report) */
+    .pr-rank {
+      display: inline-block;
+      border: 1px solid #999;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+    }
+    .pr-rank-title {
+      font-size: 9pt;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    .pr-rank-table { border-collapse: collapse; font-size: 10pt; }
+    .pr-rank-table th {
+      font-size: 8pt;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      padding: 3px 10px;
+      text-align: center;
+      font-weight: 500;
+    }
+    .pr-rank-table th:first-child { text-align: left; }
+    .pr-rank-table td {
+      padding: 4px 10px;
+      text-align: center;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .pr-rank-table td:first-child {
+      color: #555;
+      text-align: left;
+      font-weight: 500;
+      font-size: 9pt;
+    }
+    .pr-rank-table td.top { color: #16803c; }
+    .pr-rank-table td.mid { color: #111; }
+    .pr-rank-table td.low { color: #b45309; }
+    .pr-rank-table td.bottom { color: #b91c1c; }
+
+    /* Outcomes box */
+    .pr-outcomes {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .pr-outcome {
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      padding: 8px 10px;
+      text-align: center;
+    }
+    .pr-outcome-label {
+      font-size: 8pt;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .pr-outcome-value {
+      font-size: 16pt;
+      font-weight: 700;
+      line-height: 1.2;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Per-tech mini cards (team report page 2) */
+    .pr-tech-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    .pr-tech-card {
+      border: 1px solid #999;
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+    .pr-tech-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 6px;
+      margin-bottom: 8px;
+    }
+    .pr-tech-card-name { font-weight: 700; font-size: 11pt; }
+    .pr-tech-card-rank { font-size: 9pt; color: #555; }
+    .pr-tech-card-sub { font-size: 9pt; color: #555; margin-bottom: 8px; }
+    .pr-tech-card-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    .pr-tcm-label { font-size: 8pt; color: #555; }
+    .pr-tcm-value { font-size: 13pt; font-weight: 700; line-height: 1; }
+    .pr-tcm-value.good { color: #16803c; }
+    .pr-tcm-value.ok { color: #b45309; }
+    .pr-tcm-value.bad { color: #b91c1c; }
+
+    .pr-callout {
+      background: #fef3c7;
+      border-left: 3px solid #d97706;
+      padding: 8px 12px;
+      margin-bottom: 12px;
+      font-size: 10pt;
+    }
+    .pr-callout strong { color: #92400e; }
+
+    .pr-footer {
+      margin-top: 18px;
+      padding-top: 10px;
+      border-top: 1px solid #ccc;
+      font-size: 8pt;
+      color: #888;
+      display: flex;
+      justify-content: space-between;
+    }
+  }
 </style>
 </head>
 <body>
@@ -1080,6 +1597,65 @@
     <img src="../shared/repairbit-logo.png" alt="RepairBit" class="brand-wordmark" onerror="this.style.display='none'">
     <div class="live-badge"><span class="live-dot"></span>Live</div>
     <span class="clock" id="clock">--:--:--</span>
+    <div class="pdf-wrap">
+      <button class="download-pdf-btn" id="downloadPdfBtn" onclick="togglePdfPicker(event)" title="Generate a printable PDF report">
+        <span class="pdf-icon" aria-hidden="true">⬇</span>
+        <span>Download PDF</span>
+      </button>
+      <div class="pdf-picker" id="pdfPicker">
+        <div class="pdf-picker-header">
+          <span>Build a Report</span>
+          <button class="pdf-picker-close" onclick="closePdfPicker()" aria-label="Close">×</button>
+        </div>
+        <div class="pdf-picker-body">
+
+          <!-- Step 1: Date Range -->
+          <div class="pdf-step">
+            <div class="pdf-step-label">1. Date Range</div>
+            <div class="pdf-range-buttons">
+              <button class="pdf-range-btn" data-pdf-range="today"   onclick="setPdfRange('today')">Today</button>
+              <button class="pdf-range-btn" data-pdf-range="week"    onclick="setPdfRange('week')">Week</button>
+              <button class="pdf-range-btn active" data-pdf-range="month"   onclick="setPdfRange('month')">Month</button>
+              <button class="pdf-range-btn" data-pdf-range="quarter" onclick="setPdfRange('quarter')">Quarter</button>
+              <button class="pdf-range-btn" data-pdf-range="ytd"     onclick="setPdfRange('ytd')">YTD</button>
+              <button class="pdf-range-btn" data-pdf-range="all"     onclick="setPdfRange('all')">All Time</button>
+              <button class="pdf-range-btn" data-pdf-range="custom"  onclick="setPdfRange('custom')">Custom…</button>
+            </div>
+            <div class="pdf-custom-row" id="pdfCustomRow">
+              <input type="date" id="pdfCustomFrom" class="pdf-date-input">
+              <span class="pdf-arrow">→</span>
+              <input type="date" id="pdfCustomTo" class="pdf-date-input">
+            </div>
+          </div>
+
+          <!-- Step 2: Scope -->
+          <div class="pdf-step">
+            <div class="pdf-step-label">2. Scope</div>
+            <div class="pdf-scope-list" id="pdfScopeList">
+              <div class="pdf-loading">Loading…</div>
+            </div>
+          </div>
+
+          <!-- Step 3: Tech (only visible when a team is selected) -->
+          <div class="pdf-step" id="pdfTechStep" style="display: none;">
+            <div class="pdf-step-label">3. Tech</div>
+            <div class="pdf-tech-list" id="pdfTechList"></div>
+          </div>
+
+          <div class="pdf-loading-overlay" id="pdfLoadingOverlay">
+            <span class="pdf-spinner"></span>
+            <span>Loading data for selected range…</span>
+          </div>
+
+        </div>
+        <div class="pdf-picker-footer">
+          <div class="pdf-status" id="pdfStatus">Pick a scope to continue.</div>
+          <button class="pdf-generate-btn" id="pdfGenerateBtn" onclick="generatePdfReport()" disabled>
+            Generate PDF
+          </button>
+        </div>
+      </div>
+    </div>
     <button class="mode-toggle" id="modeToggle" onclick="toggleMode()">Presentation</button>
   </div>
 </div>
@@ -2519,10 +3095,846 @@
     return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
 
+  // ============================================================
+  // PDF REPORT PICKER + GENERATION
+  // ============================================================
+  // The PDF picker lets a manager configure a report independently
+  // of what's currently on the dashboard:
+  //   Step 1: Pick a date range (or custom dates)
+  //   Step 2: Pick a scope — Entire Lab, or one team
+  //   Step 3: (only if a team was picked) — All techs on team, or one tech
+  //
+  // The report is rendered into a hidden #printContainer div using
+  // print-only CSS. window.print() shows it; the dashboard view itself
+  // stays untouched so the user is back where they were after printing.
+  //
+  // Data source: when the picker's range differs from the dashboard's
+  // current range, we fetch the right slice from the Worker on demand
+  // and cache it. So a manager looking at "Today" on the dashboard can
+  // still generate a "Month" report without losing their place.
+
+  let pdfState = {
+    range: 'month',          // matches the dashboard's range API: today/week/month/quarter/ytd/all/custom
+    customFrom: null,
+    customTo: null,
+    scope: null,             // null | 'lab' | 'team:<TeamName>'
+    tech: null,              // null | 'all' | tech name
+    dataCache: {},           // range key -> response JSON
+    loading: false,
+  };
+
+  function togglePdfPicker(event) {
+    if (event) event.stopPropagation();
+    const panel = document.getElementById('pdfPicker');
+    if (panel.classList.contains('open')) closePdfPicker();
+    else openPdfPicker();
+  }
+
+  function openPdfPicker() {
+    // Default to the dashboard's currently-active range so the picker
+    // starts somewhere sensible.
+    pdfState.range = (currentRange === 'custom') ? 'month' : currentRange;
+    pdfState.scope = null;
+    pdfState.tech = null;
+
+    document.getElementById('pdfPicker').classList.add('open');
+    document.getElementById('downloadPdfBtn').classList.add('active');
+    document.querySelectorAll('.pdf-range-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.pdfRange === pdfState.range);
+    });
+    document.getElementById('pdfCustomRow').classList.remove('open');
+    document.getElementById('pdfTechStep').style.display = 'none';
+    updatePdfFooter();
+    loadPdfDataForRange();
+  }
+
+  function closePdfPicker() {
+    document.getElementById('pdfPicker').classList.remove('open');
+    document.getElementById('downloadPdfBtn').classList.remove('active');
+  }
+
+  // Close on outside click
+  document.addEventListener('click', function(e) {
+    const wrap = document.querySelector('.pdf-wrap');
+    if (wrap && !wrap.contains(e.target)) closePdfPicker();
+  });
+
+  function setPdfRange(range) {
+    pdfState.range = range;
+    pdfState.scope = null;
+    pdfState.tech = null;
+    document.querySelectorAll('.pdf-range-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.pdfRange === range);
+    });
+    const customRow = document.getElementById('pdfCustomRow');
+    if (range === 'custom') {
+      customRow.classList.add('open');
+      // Pre-fill custom dates if empty
+      const fromEl = document.getElementById('pdfCustomFrom');
+      const toEl = document.getElementById('pdfCustomTo');
+      if (!fromEl.value || !toEl.value) {
+        const today = new Date();
+        const monthAgo = new Date();
+        monthAgo.setDate(today.getDate() - 29);
+        fromEl.value = ymd(monthAgo);
+        toEl.value = ymd(today);
+      }
+      // Listen for changes
+      fromEl.onchange = toEl.onchange = () => {
+        pdfState.customFrom = fromEl.value;
+        pdfState.customTo = toEl.value;
+        loadPdfDataForRange();
+      };
+      pdfState.customFrom = fromEl.value;
+      pdfState.customTo = toEl.value;
+    } else {
+      customRow.classList.remove('open');
+      pdfState.customFrom = null;
+      pdfState.customTo = null;
+    }
+    document.getElementById('pdfTechStep').style.display = 'none';
+    updatePdfFooter();
+    loadPdfDataForRange();
+  }
+
+  function pdfRangeKey() {
+    if (pdfState.range === 'custom') return 'custom:' + pdfState.customFrom + ':' + pdfState.customTo;
+    return pdfState.range;
+  }
+
+  // Fetch the data slice for the currently-selected range. If the user
+  // picked the same range that's already on the dashboard, we reuse the
+  // already-loaded currentData rather than re-fetching.
+  async function loadPdfDataForRange() {
+    const key = pdfRangeKey();
+    // If we already have a fresh copy for this range, use it.
+    if (pdfState.dataCache[key]) {
+      renderPdfScopeList();
+      return;
+    }
+    // If the picker's range matches the dashboard's current range, we already have it.
+    let dashboardKey = (currentRange === 'custom' && customFrom && customTo)
+      ? 'custom:' + customFrom + ':' + customTo
+      : currentRange;
+    if (key === dashboardKey && currentData) {
+      pdfState.dataCache[key] = currentData;
+      renderPdfScopeList();
+      return;
+    }
+    if (pdfState.range === 'custom' && (!pdfState.customFrom || !pdfState.customTo)) {
+      document.getElementById('pdfScopeList').innerHTML =
+        '<div class="pdf-loading">Pick both From and To dates.</div>';
+      return;
+    }
+    showPdfLoading(true);
+    try {
+      let url;
+      if (pdfState.range === 'custom') {
+        url = WORKER_URL + '?type=lab' +
+              '&from=' + encodeURIComponent(pdfState.customFrom) +
+              '&to=' + encodeURIComponent(pdfState.customTo) +
+              '&t=' + Date.now();
+      } else {
+        url = WORKER_URL + '?type=lab&range=' + encodeURIComponent(pdfState.range) + '&t=' + Date.now();
+      }
+      const res = await fetch(url);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      pdfState.dataCache[key] = json;
+      renderPdfScopeList();
+    } catch (e) {
+      document.getElementById('pdfScopeList').innerHTML =
+        '<div class="pdf-loading">Failed to load data. Try again.</div>';
+    } finally {
+      showPdfLoading(false);
+    }
+  }
+
+  function showPdfLoading(on) {
+    const el = document.getElementById('pdfLoadingOverlay');
+    if (el) el.classList.toggle('show', on);
+  }
+
+  function renderPdfScopeList() {
+    const data = pdfState.dataCache[pdfRangeKey()];
+    if (!data) return;
+
+    const listEl = document.getElementById('pdfScopeList');
+    let html = '';
+
+    // "Entire Lab" — top option
+    const totalTechs = (data.teamPanels || []).reduce((sum, p) => sum + (p.techs || []).length, 0);
+    html += '<div class="pdf-scope-item lab-wide ' + (pdfState.scope === 'lab' ? 'selected' : '') + '" ' +
+            'onclick="selectPdfScope(\'lab\')">' +
+              '<span>Entire Lab</span>' +
+              '<span class="pdf-item-count">' + totalTechs + ' techs</span>' +
+            '</div>';
+
+    // Then each team
+    (data.teamPanels || []).forEach(panel => {
+      const lower = (panel.name || '').toLowerCase().trim();
+      if (lower === 'terminated') return; // append at the bottom
+      const techCount = (panel.techs || []).length;
+      const scopeId = 'team:' + panel.name;
+      html += '<div class="pdf-scope-item ' + (pdfState.scope === scopeId ? 'selected' : '') + '" ' +
+              'onclick="selectPdfScope(' + JSON.stringify(scopeId).replace(/"/g,'&quot;') + ')">' +
+                '<span>' + esc(panel.name) + '</span>' +
+                '<span class="pdf-item-count">' + techCount + ' tech' + (techCount === 1 ? '' : 's') + '</span>' +
+              '</div>';
+    });
+
+    // Terminated team at the bottom
+    const termPanel = (data.teamPanels || []).find(p => (p.name || '').toLowerCase().trim() === 'terminated');
+    if (termPanel) {
+      const scopeId = 'team:' + termPanel.name;
+      const techCount = (termPanel.techs || []).length;
+      html += '<div class="pdf-scope-item terminated ' + (pdfState.scope === scopeId ? 'selected' : '') + '" ' +
+              'onclick="selectPdfScope(' + JSON.stringify(scopeId).replace(/"/g,'&quot;') + ')">' +
+                '<span>' + esc(termPanel.name) + '</span>' +
+                '<span class="pdf-item-count">' + techCount + ' tech' + (techCount === 1 ? '' : 's') + '</span>' +
+              '</div>';
+    }
+
+    listEl.innerHTML = html;
+
+    // If a scope was already selected and is still valid, show step 3
+    if (pdfState.scope && pdfState.scope.startsWith('team:')) {
+      renderPdfTechList();
+    }
+    updatePdfFooter();
+  }
+
+  function selectPdfScope(scope) {
+    pdfState.scope = scope;
+    pdfState.tech = null;
+    renderPdfScopeList();
+    if (scope === 'lab') {
+      document.getElementById('pdfTechStep').style.display = 'none';
+    } else {
+      document.getElementById('pdfTechStep').style.display = 'block';
+      renderPdfTechList();
+    }
+    updatePdfFooter();
+  }
+
+  function renderPdfTechList() {
+    const data = pdfState.dataCache[pdfRangeKey()];
+    if (!data || !pdfState.scope || !pdfState.scope.startsWith('team:')) return;
+    const teamName = pdfState.scope.substring(5);
+    const panel = (data.teamPanels || []).find(p => p.name === teamName);
+    const techs = panel ? (panel.techs || []) : [];
+    const isTermTeam = (teamName || '').toLowerCase().trim() === 'terminated';
+
+    // Sort by title rank then alphabetically — same as the existing tech filter
+    function titleRank(level) {
+      const l = (level || '').toLowerCase();
+      if (l.includes('lead')) return 1;
+      if (l.includes('senior') || l.includes('sr ') || /\bsr\.?$/.test(l)) return 2;
+      if (l.includes('iii') || l.includes('l3')) return 3;
+      if (l.includes(' ii') || l.includes('l2')) return 4;
+      if (l.match(/\bi\b/) || l.includes('l1')) return 5;
+      if (l.includes('training')) return 6;
+      return 50;
+    }
+    const sorted = [...techs].sort((a, b) => {
+      const ra = titleRank(a.level), rb = titleRank(b.level);
+      if (ra !== rb) return ra - rb;
+      return a.name.localeCompare(b.name);
+    });
+
+    let html = '';
+    // "All techs in this team" option
+    html += '<div class="pdf-tech-item pdf-tech-all ' + (pdfState.tech === 'all' ? 'selected' : '') + '" ' +
+            'onclick="selectPdfTech(\'all\')">' +
+              '<span>All techs in ' + esc(teamName) + '</span>' +
+              '<span class="pdf-item-count">' + sorted.length + '</span>' +
+            '</div>';
+    sorted.forEach(t => {
+      const cls = 'pdf-tech-item' + (pdfState.tech === t.name ? ' selected' : '') + (isTermTeam ? ' terminated' : '');
+      html += '<div class="' + cls + '" onclick="selectPdfTech(' + JSON.stringify(t.name).replace(/"/g,'&quot;') + ')">' +
+                '<span class="name">' + esc(t.name) + '</span>' +
+                '<span class="pdf-item-count">' + esc(t.level || '') + '</span>' +
+              '</div>';
+    });
+
+    document.getElementById('pdfTechList').innerHTML = html;
+  }
+
+  function selectPdfTech(name) {
+    pdfState.tech = name;
+    renderPdfTechList();
+    updatePdfFooter();
+  }
+
+  function updatePdfFooter() {
+    const status = document.getElementById('pdfStatus');
+    const btn = document.getElementById('pdfGenerateBtn');
+    if (!pdfState.scope) {
+      status.textContent = 'Pick a scope to continue.';
+      status.classList.remove('ready');
+      btn.disabled = true;
+      return;
+    }
+    if (pdfState.scope.startsWith('team:') && !pdfState.tech) {
+      status.textContent = 'Pick "All techs" or a specific tech.';
+      status.classList.remove('ready');
+      btn.disabled = true;
+      return;
+    }
+    // Ready
+    let scopeLabel;
+    if (pdfState.scope === 'lab') scopeLabel = 'Entire Lab';
+    else {
+      const teamName = pdfState.scope.substring(5);
+      scopeLabel = pdfState.tech === 'all'
+        ? 'All techs in ' + teamName
+        : pdfState.tech + ' (' + teamName + ')';
+    }
+    status.textContent = 'Ready: ' + scopeLabel;
+    status.classList.add('ready');
+    btn.disabled = false;
+  }
+
+  // ============================================================
+  // Report rendering — three flavors: lab, team, single tech.
+  // Each builds HTML into the #printContainer and returns a filename
+  // base to use for the PDF.
+  // ============================================================
+
+  function rangeLabel() {
+    if (pdfState.range === 'custom') return pdfState.customFrom + ' to ' + pdfState.customTo;
+    const labels = {
+      today: 'Today', week: 'This Week', month: 'This Month',
+      quarter: 'This Quarter', ytd: 'Year to Date', all: 'All Time'
+    };
+    return labels[pdfState.range] || pdfState.range;
+  }
+
+  // Stable filename-safe label for a range
+  function rangeFilenameSafe() {
+    if (pdfState.range === 'custom') return pdfState.customFrom + '_to_' + pdfState.customTo;
+    return pdfState.range;
+  }
+
+  function generatedAt() {
+    const now = new Date();
+    return now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) +
+           ' at ' +
+           now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
+  // Tier class helpers — used in print stylesheet too
+  function prPctClass(pct) {
+    if (pct >= 60) return 'good';
+    if (pct > 45) return 'ok';
+    return 'bad';
+  }
+  function prBphClass(bph) {
+    if (bph >= 1.0) return 'good';
+    if (bph >= 0.5) return 'ok';
+    return 'bad';
+  }
+  function prKbClass(rate, kickbacks) {
+    if (kickbacks === 0) return 'good';
+    if (rate < 10) return 'good';
+    if (rate <= 25) return 'ok';
+    return 'bad';
+  }
+
+  // Format a delta for KPI subtitle: "+12 pp above lab avg", "−3 pp below"
+  function fmtDelta(value, comparedTo, suffix) {
+    const d = Math.round((value - comparedTo) * 10) / 10;
+    if (Math.abs(d) < 0.5) return '<span class="delta-flat">— even with ' + suffix + '</span>';
+    const cls = d > 0 ? 'delta-up' : 'delta-down';
+    const arrow = d > 0 ? '↑' : '↓';
+    const fmt = Math.abs(d) >= 10 ? Math.round(Math.abs(d)) : Math.abs(d).toFixed(1);
+    return '<span class="' + cls + '">' + arrow + ' ' + fmt + ' pp vs ' + suffix + '</span>';
+  }
+  function fmtBphDelta(value, comparedTo, suffix) {
+    const d = Math.round((value - comparedTo) * 100) / 100;
+    if (Math.abs(d) < 0.01) return '<span class="delta-flat">— even with ' + suffix + '</span>';
+    const cls = d > 0 ? 'delta-up' : 'delta-down';
+    const arrow = d > 0 ? '↑' : '↓';
+    return '<span class="' + cls + '">' + arrow + ' ' + Math.abs(d).toFixed(2) + ' vs ' + suffix + '</span>';
+  }
+
+  // Lab pool excluding Terminated/Training (used for rank computations)
+  function labRankPool(data) {
+    const out = [];
+    (data.teamPanels || []).forEach(panel => {
+      const lower = (panel.name || '').toLowerCase().trim();
+      if (lower === 'terminated' || lower === 'training') return;
+      (panel.techs || []).forEach(t => out.push(t));
+    });
+    return out;
+  }
+
+  function computeRankInPool(pool, techName, metric) {
+    if (!pool || pool.length < 2) return null;
+    const sorted = [...pool].sort((a, b) => (b[metric] || 0) - (a[metric] || 0));
+    let lastVal = null, lastRank = 0;
+    for (let i = 0; i < sorted.length; i++) {
+      const v = sorted[i][metric] || 0;
+      if (v !== lastVal) { lastRank = i + 1; lastVal = v; }
+      if (sorted[i].name === techName) return { rank: lastRank, total: sorted.length };
+    }
+    return null;
+  }
+
+  function rankCellPdf(rankObj) {
+    if (!rankObj) return '<td class="muted">—</td>';
+    const { rank, total } = rankObj;
+    const pctile = (rank - 1) / total;
+    let cls = 'mid';
+    if (pctile < 0.25) cls = 'top';
+    else if (pctile < 0.5) cls = 'mid';
+    else if (pctile < 0.75) cls = 'low';
+    else cls = 'bottom';
+    return '<td class="' + cls + '">#' + rank + ' of ' + total + '</td>';
+  }
+
+  // ---------- LAB-WIDE REPORT ----------
+  function renderLabReport(data) {
+    const lab = data.summary;
+    const teams = (data.teamSummaries || []).slice().sort((a,b) => b.pct - a.pct);
+    const allTechs = labRankPool(data);
+    const sortedByPct = [...allTechs].sort((a, b) => b.pct - a.pct);
+    const sortedByBph = [...allTechs].sort((a, b) => b.bph - a.bph);
+    const sortedByKb  = [...allTechs].filter(t => (t.kickbacks || 0) > 0)
+                                     .sort((a, b) => (b.kickbackRate || 0) - (a.kickbackRate || 0));
+
+    let html = '';
+
+    // ===== Page 1: Executive Summary =====
+    html += '<div class="pr-page">';
+    html += '<div class="pr-header">' +
+              '<div class="pr-header-top"><span class="pr-brand">RepairBit Lab</span><span class="pr-gen">Generated ' + esc(generatedAt()) + '</span></div>' +
+              '<div class="pr-title">Lab Performance Report</div>' +
+              '<div class="pr-subtitle"><strong>Scope:</strong> Entire Lab · <strong>Period:</strong> ' + esc(rangeLabel()) + '</div>' +
+            '</div>';
+
+    // Headline KPIs
+    html += '<div class="pr-kpis">';
+    html += '<div class="pr-kpi"><div class="pr-kpi-label">Repair %</div>' +
+              '<div class="pr-kpi-value ' + prPctClass(lab.pct) + '">' + lab.pct + '%</div>' +
+              '<div class="pr-kpi-sub">' + lab.repairs.toLocaleString() + ' net repairs / ' + lab.repairable.toLocaleString() + ' repairable</div>' +
+            '</div>';
+    html += '<div class="pr-kpi"><div class="pr-kpi-label">BPH</div>' +
+              '<div class="pr-kpi-value ' + prBphClass(lab.bph) + '">' + fmtBPH(lab.bph) + '</div>' +
+              '<div class="pr-kpi-sub">Across ' + lab.techDays + ' tech-days</div>' +
+            '</div>';
+    const kbCls = prKbClass(lab.kickbackRate || 0, lab.kickbacks || 0);
+    html += '<div class="pr-kpi"><div class="pr-kpi-label">Kickbacks</div>' +
+              '<div class="pr-kpi-value ' + kbCls + '">' + (lab.kickbacks || 0) + '</div>' +
+              '<div class="pr-kpi-sub">' + (lab.kickbacks ? fmtRate(lab.kickbackRate || 0) + '% rate' : 'No kickbacks this period') + '</div>' +
+            '</div>';
+    html += '</div>';
+
+    // Activity stats (compact row)
+    html += '<div class="pr-section-h">Activity Summary</div>';
+    html += '<table class="pr-table"><thead><tr><th>Total Touches</th><th>Repairs</th><th>False ASICs</th><th>Give-Ups</th><th>Graveyards</th><th>Active Techs</th></tr></thead>' +
+            '<tbody><tr>' +
+              '<td>' + lab.touches.toLocaleString() + '</td>' +
+              '<td>' + lab.repairs.toLocaleString() + '</td>' +
+              '<td>' + lab.falseAsics + '</td>' +
+              '<td>' + lab.giveups + '</td>' +
+              '<td>' + lab.graveyards + '</td>' +
+              '<td>' + allTechs.length + '</td>' +
+            '</tr></tbody></table>';
+
+    // Team comparison
+    html += '<div class="pr-section-h">Teams (Sorted by Repair %)</div>';
+    html += '<table class="pr-table"><thead><tr>' +
+              '<th>Team</th><th>Techs</th><th>Touches</th><th>Repairs</th><th>Kickbacks</th><th>Repair %</th><th>BPH</th>' +
+            '</tr></thead><tbody>';
+    teams.forEach(t => {
+      const kbR = t.kickbackRate || 0;
+      const kbN = t.kickbacks || 0;
+      html += '<tr>' +
+                '<td><strong>' + esc(t.name) + '</strong></td>' +
+                '<td>' + t.techCount + '</td>' +
+                '<td>' + t.touches.toLocaleString() + '</td>' +
+                '<td>' + t.repairs.toLocaleString() + '</td>' +
+                '<td class="' + (kbN === 0 ? 'muted' : prKbClass(kbR, kbN)) + '">' + (kbN === 0 ? '0' : kbN + ' · ' + fmtRate(kbR) + '%') + '</td>' +
+                '<td class="' + prPctClass(t.pct) + '">' + t.pct + '%</td>' +
+                '<td class="' + prBphClass(t.bph) + '">' + fmtBPH(t.bph) + '</td>' +
+              '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '</div>'; // page 1
+
+    // ===== Page 2: Top + Bottom Performers + Quality Concerns =====
+    html += '<div class="pr-page">';
+    html += '<div class="pr-header">' +
+              '<div class="pr-header-top"><span class="pr-brand">RepairBit Lab</span><span class="pr-gen">Lab Report · ' + esc(rangeLabel()) + '</span></div>' +
+              '<div class="pr-title" style="font-size: 16pt;">Performance Standouts</div>' +
+            '</div>';
+
+    const tableHead = '<thead><tr><th>Tech</th><th>Team</th><th>Touches</th><th>Repair %</th><th>BPH</th><th>Kickbacks</th></tr></thead>';
+
+    html += '<div class="pr-section-h">Top Performers (by Repair %)</div>';
+    html += '<table class="pr-table">' + tableHead + '<tbody>';
+    sortedByPct.slice(0, 5).forEach(t => {
+      const team = findTeamForTech(data, t.name);
+      const kbR = t.kickbackRate || 0, kbN = t.kickbacks || 0;
+      html += '<tr>' +
+                '<td><strong>' + esc(t.name) + '</strong></td>' +
+                '<td>' + esc(team) + '</td>' +
+                '<td>' + t.touches + '</td>' +
+                '<td class="' + prPctClass(t.pct) + '">' + t.pct + '%</td>' +
+                '<td class="' + prBphClass(t.bph) + '">' + fmtBPH(t.bph) + '</td>' +
+                '<td class="' + (kbN === 0 ? 'muted' : prKbClass(kbR, kbN)) + '">' + kbN + '</td>' +
+              '</tr>';
+    });
+    html += '</tbody></table>';
+
+    html += '<div class="pr-section-h">Bottom Performers (by Repair %)</div>';
+    html += '<table class="pr-table">' + tableHead + '<tbody>';
+    [...sortedByPct].reverse().slice(0, 5).forEach(t => {
+      const team = findTeamForTech(data, t.name);
+      const kbR = t.kickbackRate || 0, kbN = t.kickbacks || 0;
+      html += '<tr>' +
+                '<td><strong>' + esc(t.name) + '</strong></td>' +
+                '<td>' + esc(team) + '</td>' +
+                '<td>' + t.touches + '</td>' +
+                '<td class="' + prPctClass(t.pct) + '">' + t.pct + '%</td>' +
+                '<td class="' + prBphClass(t.bph) + '">' + fmtBPH(t.bph) + '</td>' +
+                '<td class="' + (kbN === 0 ? 'muted' : prKbClass(kbR, kbN)) + '">' + kbN + '</td>' +
+              '</tr>';
+    });
+    html += '</tbody></table>';
+
+    if (sortedByKb.length > 0) {
+      html += '<div class="pr-section-h">Quality Concerns (Highest Kickback Rates)</div>';
+      html += '<table class="pr-table">' + tableHead.replace('<th>Touches</th>', '<th>Repairs</th>') + '<tbody>';
+      sortedByKb.slice(0, 5).forEach(t => {
+        const team = findTeamForTech(data, t.name);
+        const kbR = t.kickbackRate || 0, kbN = t.kickbacks || 0;
+        html += '<tr>' +
+                  '<td><strong>' + esc(t.name) + '</strong></td>' +
+                  '<td>' + esc(team) + '</td>' +
+                  '<td>' + t.repairs + '</td>' +
+                  '<td class="' + prPctClass(t.pct) + '">' + t.pct + '%</td>' +
+                  '<td class="' + prBphClass(t.bph) + '">' + fmtBPH(t.bph) + '</td>' +
+                  '<td class="' + prKbClass(kbR, kbN) + '">' + kbN + ' · ' + fmtRate(kbR) + '%</td>' +
+                '</tr>';
+      });
+      html += '</tbody></table>';
+    }
+    html += '</div>'; // page 2
+
+    // ===== Page 3: All Techs Table =====
+    html += '<div class="pr-page">';
+    html += '<div class="pr-header">' +
+              '<div class="pr-header-top"><span class="pr-brand">RepairBit Lab</span><span class="pr-gen">Lab Report · ' + esc(rangeLabel()) + '</span></div>' +
+              '<div class="pr-title" style="font-size: 16pt;">All Techs</div>' +
+              '<div class="pr-subtitle">Every active tech across the lab, sorted by Repair %.</div>' +
+            '</div>';
+
+    html += '<table class="pr-table"><thead><tr>' +
+              '<th>Tech</th><th>Team</th><th>Days</th><th>Touches</th><th>Repairs</th><th>FA</th><th>GU</th><th>GY</th><th>KB</th><th>Repair %</th><th>BPH</th>' +
+            '</tr></thead><tbody>';
+    sortedByPct.forEach(t => {
+      const team = findTeamForTech(data, t.name);
+      const kbN = t.kickbacks || 0;
+      html += '<tr>' +
+                '<td><strong>' + esc(t.name) + '</strong></td>' +
+                '<td>' + esc(team) + '</td>' +
+                '<td>' + (t.techDays || 0) + '</td>' +
+                '<td>' + t.touches + '</td>' +
+                '<td>' + t.repairs + '</td>' +
+                '<td>' + t.falseAsics + '</td>' +
+                '<td>' + t.giveups + '</td>' +
+                '<td>' + t.graveyards + '</td>' +
+                '<td class="' + (kbN === 0 ? 'muted' : '') + '">' + kbN + '</td>' +
+                '<td class="' + prPctClass(t.pct) + '">' + t.pct + '%</td>' +
+                '<td class="' + prBphClass(t.bph) + '">' + fmtBPH(t.bph) + '</td>' +
+              '</tr>';
+    });
+    html += '</tbody></table>';
+
+    html += '<div class="pr-footer">' +
+              '<span>RepairBit Lab Performance Report</span>' +
+              '<span>Page 3 · ' + esc(rangeLabel()) + '</span>' +
+            '</div>';
+    html += '</div>'; // page 3
+
+    return { html, filename: 'RepairBit_Lab_Report_' + rangeFilenameSafe() };
+  }
+
+  function findTeamForTech(data, techName) {
+    const panel = (data.teamPanels || []).find(p => (p.techs || []).some(t => t.name === techName));
+    return panel ? panel.name : '—';
+  }
+
+  // ---------- TEAM REPORT ----------
+  function renderTeamReport(data, teamName) {
+    const panel = (data.teamPanels || []).find(p => p.name === teamName);
+    if (!panel) return { html: '<div>Team not found.</div>', filename: 'RepairBit_Report' };
+    const teamSummary = (data.teamSummaries || []).find(t => t.name === teamName) || {};
+    const techs = (panel.techs || []).slice().sort((a, b) => b.pct - a.pct);
+    const lab = data.summary;
+
+    let html = '';
+
+    // ===== Page 1: Team Overview =====
+    html += '<div class="pr-page">';
+    html += '<div class="pr-header">' +
+              '<div class="pr-header-top"><span class="pr-brand">RepairBit Lab</span><span class="pr-gen">Generated ' + esc(generatedAt()) + '</span></div>' +
+              '<div class="pr-title">' + esc(teamName) + ' Performance Report</div>' +
+              '<div class="pr-subtitle"><strong>Period:</strong> ' + esc(rangeLabel()) + ' · ' + (panel.techs || []).length + ' techs</div>' +
+            '</div>';
+
+    // KPIs with vs-lab comparison
+    html += '<div class="pr-kpis">';
+    html += '<div class="pr-kpi"><div class="pr-kpi-label">Repair %</div>' +
+              '<div class="pr-kpi-value ' + prPctClass(panel.pct) + '">' + panel.pct + '%</div>' +
+              '<div class="pr-kpi-sub">' + fmtDelta(panel.pct, lab.pct, 'lab avg ' + lab.pct + '%') + '</div>' +
+            '</div>';
+    html += '<div class="pr-kpi"><div class="pr-kpi-label">BPH</div>' +
+              '<div class="pr-kpi-value ' + prBphClass(panel.bph) + '">' + fmtBPH(panel.bph) + '</div>' +
+              '<div class="pr-kpi-sub">' + fmtBphDelta(panel.bph, lab.bph, 'lab ' + fmtBPH(lab.bph)) + '</div>' +
+            '</div>';
+    const teamKb = panel.kickbacks || 0;
+    const teamKbR = panel.kickbackRate || 0;
+    html += '<div class="pr-kpi"><div class="pr-kpi-label">Kickbacks</div>' +
+              '<div class="pr-kpi-value ' + prKbClass(teamKbR, teamKb) + '">' + teamKb + '</div>' +
+              '<div class="pr-kpi-sub">' + (teamKb === 0 ? 'No kickbacks' : fmtRate(teamKbR) + '% rate · lab avg ' + fmtRate(lab.kickbackRate || 0) + '%') + '</div>' +
+            '</div>';
+    html += '</div>';
+
+    // Activity summary
+    html += '<div class="pr-section-h">Activity Summary</div>';
+    html += '<table class="pr-table"><thead><tr><th>Touches</th><th>Repairs</th><th>False ASICs</th><th>Give-Ups</th><th>Graveyards</th></tr></thead>' +
+            '<tbody><tr>' +
+              '<td>' + (panel.touches || 0).toLocaleString() + '</td>' +
+              '<td>' + (teamSummary.repairs || 0).toLocaleString() + '</td>' +
+              '<td>' + (teamSummary.falseAsics || 0) + '</td>' +
+              '<td>' + (teamSummary.giveups || 0) + '</td>' +
+              '<td>' + (teamSummary.graveyards || 0) + '</td>' +
+            '</tr></tbody></table>';
+
+    // Tech roster table (sorted by performance)
+    html += '<div class="pr-section-h">Tech Roster (Sorted by Repair %)</div>';
+    html += '<table class="pr-table"><thead><tr>' +
+              '<th>Tech</th><th>Level</th><th>Days</th><th>Touches</th><th>Repairs</th><th>KB</th><th>Repair %</th><th>BPH</th>' +
+            '</tr></thead><tbody>';
+    techs.forEach(t => {
+      const kbN = t.kickbacks || 0;
+      const isAbove = t.pct >= panel.pct;
+      html += '<tr' + (isAbove ? '' : '') + '>' +
+                '<td><strong>' + esc(t.name) + '</strong></td>' +
+                '<td>' + esc(t.level || '—') + '</td>' +
+                '<td>' + (t.techDays || 0) + '</td>' +
+                '<td>' + t.touches + '</td>' +
+                '<td>' + t.repairs + '</td>' +
+                '<td class="' + (kbN === 0 ? 'muted' : prKbClass(t.kickbackRate || 0, kbN)) + '">' + (kbN === 0 ? '0' : kbN) + '</td>' +
+                '<td class="' + prPctClass(t.pct) + '">' + t.pct + '%</td>' +
+                '<td class="' + prBphClass(t.bph) + '">' + fmtBPH(t.bph) + '</td>' +
+              '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '</div>'; // page 1
+
+    // ===== Page 2: Per-Tech Mini Cards =====
+    html += '<div class="pr-page">';
+    html += '<div class="pr-header">' +
+              '<div class="pr-header-top"><span class="pr-brand">RepairBit Lab</span><span class="pr-gen">' + esc(teamName) + ' · ' + esc(rangeLabel()) + '</span></div>' +
+              '<div class="pr-title" style="font-size: 16pt;">Tech Snapshots</div>' +
+              '<div class="pr-subtitle">Each card shows that tech\'s vitals. Sorted by Repair %.</div>' +
+            '</div>';
+
+    html += '<div class="pr-tech-grid">';
+    techs.forEach((t, idx) => {
+      const kbN = t.kickbacks || 0;
+      const kbR = t.kickbackRate || 0;
+      html += '<div class="pr-tech-card">' +
+                '<div class="pr-tech-card-head">' +
+                  '<span class="pr-tech-card-name">' + esc(t.name) + '</span>' +
+                  '<span class="pr-tech-card-rank">#' + (idx + 1) + ' of ' + techs.length + ' in team</span>' +
+                '</div>' +
+                '<div class="pr-tech-card-sub">' + esc(t.level || '') + ' · ' + (t.techDays || 0) + ' day' + ((t.techDays || 0) === 1 ? '' : 's') + ' active · ' + t.touches + ' touches</div>' +
+                '<div class="pr-tech-card-metrics">' +
+                  '<div><div class="pr-tcm-label">Repair %</div><div class="pr-tcm-value ' + prPctClass(t.pct) + '">' + t.pct + '%</div></div>' +
+                  '<div><div class="pr-tcm-label">BPH</div><div class="pr-tcm-value ' + prBphClass(t.bph) + '">' + fmtBPH(t.bph) + '</div></div>' +
+                  '<div><div class="pr-tcm-label">Kickbacks</div><div class="pr-tcm-value ' + (kbN === 0 ? '' : prKbClass(kbR, kbN)) + '">' + kbN + (kbN === 0 ? '' : '<span style="font-size: 8pt; color: #555;"> · ' + fmtRate(kbR) + '%</span>') + '</div></div>' +
+                '</div>' +
+              '</div>';
+    });
+    html += '</div>';
+
+    html += '<div class="pr-footer">' +
+              '<span>' + esc(teamName) + ' Performance Report</span>' +
+              '<span>' + esc(rangeLabel()) + '</span>' +
+            '</div>';
+    html += '</div>'; // page 2
+
+    return { html, filename: 'RepairBit_' + teamName.replace(/\s+/g, '_') + '_Report_' + rangeFilenameSafe() };
+  }
+
+  // ---------- SINGLE TECH REPORT ----------
+  function renderTechReport(data, techName) {
+    const teamPanel = (data.teamPanels || []).find(p => (p.techs || []).some(t => t.name === techName));
+    if (!teamPanel) return { html: '<div>Tech not found.</div>', filename: 'RepairBit_Report' };
+    const tech = teamPanel.techs.find(t => t.name === techName);
+    const teamName = teamPanel.name;
+    const lab = data.summary;
+
+    // Compute ranks
+    const teamPool = teamPanel.techs;
+    const labPool = labRankPool(data);
+
+    const teamRankRep = computeRankInPool(teamPool, techName, 'repairs');
+    const teamRankPct = computeRankInPool(teamPool, techName, 'pct');
+    const teamRankBph = computeRankInPool(teamPool, techName, 'bph');
+    const labRankRep  = computeRankInPool(labPool,  techName, 'repairs');
+    const labRankPct  = computeRankInPool(labPool,  techName, 'pct');
+    const labRankBph  = computeRankInPool(labPool,  techName, 'bph');
+
+    let html = '';
+
+    // ===== Page 1: The Decision Page =====
+    html += '<div class="pr-page">';
+    html += '<div class="pr-header">' +
+              '<div class="pr-header-top"><span class="pr-brand">RepairBit Lab</span><span class="pr-gen">Generated ' + esc(generatedAt()) + '</span></div>' +
+              '<div class="pr-title">' + esc(tech.name) + '</div>' +
+              '<div class="pr-subtitle"><strong>' + esc(tech.level || 'Lab Tech') + '</strong> · <strong>' + esc(teamName) + '</strong> · ' + (tech.techDays || 0) + ' active day' + ((tech.techDays || 0) === 1 ? '' : 's') + ' in ' + esc(rangeLabel()) + '</div>' +
+            '</div>';
+
+    // KPIs with vs-team and vs-lab comparison
+    html += '<div class="pr-kpis">';
+    html += '<div class="pr-kpi"><div class="pr-kpi-label">Repair %</div>' +
+              '<div class="pr-kpi-value ' + prPctClass(tech.pct) + '">' + tech.pct + '%</div>' +
+              '<div class="pr-kpi-sub">' + fmtDelta(tech.pct, teamPanel.pct, 'team') + ' · ' + fmtDelta(tech.pct, lab.pct, 'lab') + '</div>' +
+            '</div>';
+    html += '<div class="pr-kpi"><div class="pr-kpi-label">BPH</div>' +
+              '<div class="pr-kpi-value ' + prBphClass(tech.bph) + '">' + fmtBPH(tech.bph) + '</div>' +
+              '<div class="pr-kpi-sub">' + fmtBphDelta(tech.bph, teamPanel.bph, 'team') + ' · ' + fmtBphDelta(tech.bph, lab.bph, 'lab') + '</div>' +
+            '</div>';
+    const kbN = tech.kickbacks || 0;
+    const kbR = tech.kickbackRate || 0;
+    html += '<div class="pr-kpi"><div class="pr-kpi-label">Kickbacks</div>' +
+              '<div class="pr-kpi-value ' + prKbClass(kbR, kbN) + '">' + kbN + '</div>' +
+              '<div class="pr-kpi-sub">' + (kbN === 0 ? 'No kickbacks this period' : fmtRate(kbR) + '% rate · vs lab ' + fmtRate(lab.kickbackRate || 0) + '%') + '</div>' +
+            '</div>';
+    html += '</div>';
+
+    // Rank Breakdown
+    html += '<div class="pr-section-h">Rank Breakdown</div>';
+    html += '<div class="pr-rank">' +
+              '<table class="pr-rank-table">' +
+                '<thead><tr><th></th><th>In ' + esc(teamName) + '</th><th>In Lab</th></tr></thead>' +
+                '<tbody>' +
+                  '<tr><td>Repairs</td>' + rankCellPdf(teamRankRep) + rankCellPdf(labRankRep) + '</tr>' +
+                  '<tr><td>Repair %</td>' + rankCellPdf(teamRankPct) + rankCellPdf(labRankPct) + '</tr>' +
+                  '<tr><td>BPH</td>' + rankCellPdf(teamRankBph) + rankCellPdf(labRankBph) + '</tr>' +
+                '</tbody>' +
+              '</table>' +
+            '</div>';
+
+    // Outcomes
+    html += '<div class="pr-section-h">Outcomes</div>';
+    const repairable = tech.touches - tech.falseAsics;
+    html += '<div class="pr-outcomes">' +
+              '<div class="pr-outcome"><div class="pr-outcome-label">Touches</div><div class="pr-outcome-value">' + tech.touches + '</div></div>' +
+              '<div class="pr-outcome"><div class="pr-outcome-label">Repairs</div><div class="pr-outcome-value">' + tech.repairs + '</div></div>' +
+              '<div class="pr-outcome"><div class="pr-outcome-label">False ASICs</div><div class="pr-outcome-value">' + tech.falseAsics + '</div></div>' +
+              '<div class="pr-outcome"><div class="pr-outcome-label">Give-Ups</div><div class="pr-outcome-value">' + tech.giveups + '</div></div>' +
+              '<div class="pr-outcome"><div class="pr-outcome-label">Graveyards</div><div class="pr-outcome-value">' + tech.graveyards + '</div></div>' +
+            '</div>';
+
+    // Activity stats
+    const touchesPerDay = (tech.techDays > 0) ? (tech.touches / tech.techDays).toFixed(1) : '—';
+    html += '<div class="pr-section-h">Activity Summary</div>';
+    html += '<table class="pr-table"><thead><tr>' +
+              '<th>Active Days</th><th>Touches / Day</th><th>Repairable</th><th>Net Repairs</th><th>Kickback Rate</th>' +
+            '</tr></thead><tbody><tr>' +
+              '<td>' + (tech.techDays || 0) + '</td>' +
+              '<td>' + touchesPerDay + '</td>' +
+              '<td>' + repairable + '</td>' +
+              '<td>' + Math.max(0, tech.repairs - kbN) + '</td>' +
+              '<td class="' + (kbN === 0 ? 'muted' : prKbClass(kbR, kbN)) + '">' + (kbN === 0 ? '—' : fmtRate(kbR) + '%') + '</td>' +
+            '</tr></tbody></table>';
+
+    // Optional callout for quality concerns
+    if (kbR > 25 && kbN >= 2) {
+      html += '<div class="pr-callout"><strong>Quality concern:</strong> Kickback rate is ' + fmtRate(kbR) + '%, well above the lab average of ' + fmtRate(lab.kickbackRate || 0) + '%. ' +
+              kbN + ' of ' + tech.repairs + ' marked repairs came back from outgoing test as not actually fixed.</div>';
+    }
+
+    html += '<div class="pr-footer">' +
+              '<span>' + esc(tech.name) + ' · ' + esc(teamName) + '</span>' +
+              '<span>' + esc(rangeLabel()) + '</span>' +
+            '</div>';
+    html += '</div>'; // page 1
+
+    return { html, filename: 'RepairBit_' + tech.name.replace(/\s+/g, '_') + '_Report_' + rangeFilenameSafe() };
+  }
+
+  // ============================================================
+  // Generate and print
+  // ============================================================
+  function generatePdfReport() {
+    const data = pdfState.dataCache[pdfRangeKey()];
+    if (!data || !pdfState.scope) return;
+
+    let result;
+    if (pdfState.scope === 'lab') {
+      result = renderLabReport(data);
+    } else if (pdfState.scope.startsWith('team:')) {
+      const teamName = pdfState.scope.substring(5);
+      if (pdfState.tech === 'all') {
+        result = renderTeamReport(data, teamName);
+      } else if (pdfState.tech) {
+        result = renderTechReport(data, pdfState.tech);
+      } else {
+        return;
+      }
+    }
+    if (!result) return;
+
+    // Pause rotation so it doesn't interfere with the print dialog opening
+    const wasInPresentation = !browseMode;
+    if (wasInPresentation) {
+      if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; }
+      if (progTimer) { cancelAnimationFrame(progTimer); progTimer = null; }
+    }
+
+    // Inject the report HTML
+    document.getElementById('printContainer').innerHTML = result.html;
+
+    // Set page title to drive the browser's default "Save as PDF" filename
+    const originalTitle = document.title;
+    document.title = result.filename;
+
+    // Close picker so it doesn't interfere
+    closePdfPicker();
+
+    // Fire print after a short delay so the DOM and CSS have time to apply
+    setTimeout(() => {
+      window.print();
+      // Restore after the user closes the print dialog (or after a fallback timeout)
+      const restore = () => {
+        document.title = originalTitle;
+        document.getElementById('printContainer').innerHTML = '';
+        if (wasInPresentation) startRotation();
+        window.removeEventListener('afterprint', restore);
+      };
+      window.addEventListener('afterprint', restore);
+      // Fallback for browsers without afterprint
+      setTimeout(restore, 60000);
+    }, 100);
+  }
+
   // ============ Boot ============
   readUrlState();
   fetchData();
   setInterval(fetchData, REFRESH_MS);
 </script>
+
+<!-- Print container — hidden on screen, shown only when generating a PDF.
+     Report HTML is injected into this div right before window.print() fires. -->
+<div id="printContainer" class="print-container"></div>
+
 </body>
 </html>

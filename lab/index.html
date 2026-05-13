@@ -3153,10 +3153,19 @@
     document.getElementById('downloadPdfBtn').classList.remove('active');
   }
 
-  // Close on outside click
-  document.addEventListener('click', function(e) {
-    const wrap = document.querySelector('.pdf-wrap');
-    if (wrap && !wrap.contains(e.target)) closePdfPicker();
+  // Close on outside click. Use 'mousedown' rather than 'click' so the
+  // check happens BEFORE any handler that re-renders DOM nodes — otherwise
+  // clicking a scope item triggers a re-render before the click handler
+  // here runs, by which time e.target is no longer in the DOM and the
+  // contains() check incorrectly returns false (and the picker closes).
+  document.addEventListener('mousedown', function(e) {
+    const panel = document.getElementById('pdfPicker');
+    const btn = document.getElementById('downloadPdfBtn');
+    if (!panel || !panel.classList.contains('open')) return;
+    // If the click started inside the picker panel OR on the toggle button, ignore.
+    if (panel.contains(e.target)) return;
+    if (btn && btn.contains(e.target)) return;
+    closePdfPicker();
   });
 
   function setPdfRange(range) {

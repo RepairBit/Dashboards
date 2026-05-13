@@ -1718,18 +1718,6 @@
     return n.toFixed(1);
   }
 
-  // Net repair %: subtract kickbacks from repairs in the numerator, since a
-  // kickback is a "repair" that didn't actually hold. Same denominator as the
-  // standard Repair %. Returned as an integer percentage (0-100, can be 0 or
-  // negative-clamped — kickbacks can in rare cases exceed repairs in a tiny
-  // sample). Returns null when there's no meaningful denominator.
-  function netRepairPct(repairs, kickbacks, touches, falseAsics) {
-    const denom = (touches || 0) - (falseAsics || 0);
-    if (denom <= 0) return null;
-    const numer = Math.max(0, (repairs || 0) - (kickbacks || 0));
-    return Math.round((numer / denom) * 100);
-  }
-
   function renderTrendChart(trend, isPerTech) {
     const ctx = document.getElementById('trendChart');
     if (trendChart) trendChart.destroy();
@@ -2063,35 +2051,6 @@
     const labRankPct      = computeRank(labPool,  'pct');
     const labRankBph      = computeRank(labPool,  'bph');
 
-    // Net Repair % rank — only meaningful if the selected tech has any kickbacks.
-    // We compute a synthetic netPct on each pool entry before ranking so all
-    // techs in the cohort are compared on the same metric. Excluded above the
-    // threshold of zero kickbacks for THIS tech to avoid showing a redundant
-    // row that exactly duplicates Repair % rank.
-    let teamRankNetPct = null;
-    let labRankNetPct = null;
-    const techHasKickbacks = (tech.kickbacks || 0) > 0;
-    if (techHasKickbacks) {
-      // Decorate pools with netPct (mutating a copy, not the originals)
-      function withNetPct(pool) {
-        return pool.map(t => ({
-          ...t,
-          netPct: netRepairPct(t.repairs, t.kickbacks, t.touches, t.falseAsics) || 0,
-        }));
-      }
-      teamRankNetPct = computeRank(withNetPct(teamPool), 'netPct');
-      labRankNetPct  = computeRank(withNetPct(labPool),  'netPct');
-    }
-
-    // Conditional rows
-    const netRepairRowHTML = techHasKickbacks
-      ? '<tr>' +
-          '<td>Net Repair %</td>' +
-          rankCellHTML(teamRankNetPct) +
-          rankCellHTML(labRankNetPct) +
-        '</tr>'
-      : '';
-
     const rankTableHTML =
       '<div class="tech-detail-rank">' +
         '<div class="tech-detail-rank-title">Rank Breakdown</div>' +
@@ -2112,7 +2071,6 @@
               rankCellHTML(teamRankPct) +
               rankCellHTML(labRankPct) +
             '</tr>' +
-            netRepairRowHTML +
             '<tr>' +
               '<td>BPH</td>' +
               rankCellHTML(teamRankBph) +
@@ -2146,20 +2104,6 @@
           '<div class="tech-detail-block-label">Repair %</div>' +
           '<div class="tech-detail-block-value ' + pCls + '">' + tech.pct + '%</div>' +
           '<div class="tech-detail-block-sub">' + tech.repairs + ' of ' + (tech.touches - tech.falseAsics) + ' repairable</div>' +
-          (function() {
-            // When this tech has kickbacks, show their net repair % under
-            // the headline number. The net rate reflects work that actually
-            // held up (subtracts kickbacks from successful repairs).
-            const tKb = tech.kickbacks || 0;
-            if (tKb === 0) return '';
-            const tNet = netRepairPct(tech.repairs, tKb, tech.touches, tech.falseAsics);
-            if (tNet === null || tNet === tech.pct) return '';
-            const netCls = pctClass(tNet);
-            return '<div class="tech-detail-block-sub" style="margin-top: 4px;">' +
-                     '<span style="color: var(--' + netCls + '); font-weight: 600;">' + tNet + '%</span>' +
-                     ' net of ' + tKb + ' kickback' + (tKb === 1 ? '' : 's') +
-                   '</div>';
-          })() +
         '</div>' +
         '<div>' +
           '<div class="tech-detail-block-label">Boards / Hour</div>' +
@@ -2220,17 +2164,9 @@
     const pctBar = document.getElementById("s-pct-bar");
     pctBar.style.width = Math.min(100, tech.pct) + "%";
     pctBar.className = "kpi-progress-fill " + pctClass(tech.pct);
-    document.getElementById("s-pct-sub").innerHTML = (function() {
-      const tKickbacks = tech.kickbacks || 0;
-      const tNet = netRepairPct(tech.repairs, tKickbacks, tech.touches, tech.falseAsics);
-      const pctSpan = '<span style="color: var(--' + pctClass(tech.pct) + '); font-weight: 600;">' + tech.pct + '%</span>';
-      if (tKickbacks > 0 && tNet !== null && tNet !== tech.pct) {
-        const netCls = pctClass(tNet);
-        const netSpan = '<span style="color: var(--' + netCls + '); font-weight: 600;">' + tNet + '%</span>';
-        return pctSpan + ' as recorded · ' + netSpan + ' net of kickbacks';
-      }
-      return pctSpan + ' repair rate';
-    })();
+    document.getElementById("s-pct-sub").innerHTML =
+      '<span style="color: var(--' + pctClass(tech.pct) + '); font-weight: 600;">' + tech.pct + '%</span>' +
+      ' repair rate';
 
     const bphEl = document.getElementById("s-bph");
     bphEl.textContent = fmtBPH(tech.bph);
@@ -2326,17 +2262,9 @@
     const pctBar = document.getElementById("s-pct-bar");
     pctBar.style.width = Math.min(100, lab.pct) + "%";
     pctBar.className = "kpi-progress-fill " + pctClass(lab.pct);
-    document.getElementById("s-pct-sub").innerHTML = (function() {
-      const labKickbacks = lab.kickbacks || 0;
-      const labNet = netRepairPct(lab.repairs, labKickbacks, lab.touches, lab.falseAsics);
-      const pctSpan = '<span style="color: var(--' + pctClass(lab.pct) + '); font-weight: 600;">' + lab.pct + '%</span>';
-      if (labKickbacks > 0 && labNet !== null && labNet !== lab.pct) {
-        const netCls = pctClass(labNet);
-        const netSpan = '<span style="color: var(--' + netCls + '); font-weight: 600;">' + labNet + '%</span>';
-        return pctSpan + ' as recorded · ' + netSpan + ' net of kickbacks';
-      }
-      return pctSpan + ' · ' + lab.repairable.toLocaleString() + ' repairable';
-    })();
+    document.getElementById("s-pct-sub").innerHTML =
+      '<span style="color: var(--' + pctClass(lab.pct) + '); font-weight: 600;">' + lab.pct + '%</span>' +
+      ' · ' + lab.repairable.toLocaleString() + ' repairable';
 
     const bphEl = document.getElementById("s-bph");
     bphEl.textContent = fmtBPH(lab.bph);

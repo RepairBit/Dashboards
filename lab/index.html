@@ -1327,10 +1327,14 @@
     .print-container, .print-container * { visibility: visible !important; }
     .print-container {
       display: block !important;
-      position: absolute;
-      left: 0;
-      top: 0;
-      width: 100%;
+      position: absolute !important;
+      left: 0 !important;
+      top: 0 !important;
+      right: auto !important;
+      width: 100% !important;
+      opacity: 1 !important;
+      z-index: auto !important;
+      pointer-events: auto !important;
     }
 
     /* Flip to a clean light theme */
@@ -1623,45 +1627,49 @@
     /* Sparkline trio — three small trend charts in a row */
     .pr-sparklines {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
       margin-bottom: 14px;
     }
     .pr-spark {
       border: 1px solid #ccc;
       border-radius: 6px;
-      padding: 8px 10px 4px;
+      padding: 8px 12px 6px;
     }
     .pr-spark-label {
-      font-size: 8pt;
+      font-size: 8.5pt;
       color: #555;
       text-transform: uppercase;
       letter-spacing: 0.4px;
-      margin-bottom: 4px;
+      margin-bottom: 6px;
       display: flex;
       justify-content: space-between;
+      align-items: baseline;
     }
     .pr-spark-label .delta {
       font-weight: 700;
       letter-spacing: 0;
       text-transform: none;
-      font-size: 9pt;
+      font-size: 9.5pt;
     }
     .pr-spark-label .delta.up { color: #16803c; }
     .pr-spark-label .delta.down { color: #b91c1c; }
     .pr-spark-label .delta.flat { color: #555; }
     .pr-spark canvas {
       width: 100% !important;
-      height: 60px !important;
+      height: 130px !important;
       display: block;
     }
     .pr-spark-foot {
-      font-size: 7.5pt;
-      color: #888;
       display: flex;
       justify-content: space-between;
-      margin-top: 2px;
+      font-size: 8.5pt;
+      color: #555;
+      margin-top: 4px;
+      padding: 0 4px;
     }
+    .pr-spark-foot span:first-child { color: #888; }
+    .pr-spark-foot span:last-child { font-weight: 700; color: #111; }
 
     /* Breakdown table — adaptive (quarterly / monthly / weekly / daily) */
     .pr-breakdown {
@@ -1692,9 +1700,9 @@
     <div class="live-badge"><span class="live-dot"></span>Live</div>
     <span class="clock" id="clock">--:--:--</span>
     <div class="pdf-wrap">
-      <button class="download-pdf-btn" id="downloadPdfBtn" onclick="togglePdfPicker(event)" title="Generate a printable PDF report">
+      <button class="download-pdf-btn" id="downloadPdfBtn" onclick="togglePdfPicker(event)" title="Generate a downloadable HTML report">
         <span class="pdf-icon" aria-hidden="true">⬇</span>
-        <span>Download PDF</span>
+        <span>Download Report</span>
       </button>
       <div class="pdf-picker" id="pdfPicker">
         <div class="pdf-picker-header">
@@ -1745,7 +1753,7 @@
         <div class="pdf-picker-footer">
           <div class="pdf-status" id="pdfStatus">Pick a scope to continue.</div>
           <button class="pdf-generate-btn" id="pdfGenerateBtn" onclick="generatePdfReport()" disabled>
-            Generate PDF
+            Generate Report
           </button>
         </div>
       </div>
@@ -2195,16 +2203,35 @@
     // own team panel in the current range). We use this union so the filter
     // dropdown always shows everyone who has any data, even if they're not in
     // a team panel right now.
-    const seen = {};
+    //
+    // For techs who appear on multiple teams (because they changed teams during
+    // the range), we display them under their MOST RECENT non-Terminated team
+    // — the Worker orders teamPanels numerically, so the last one we see for
+    // them is the higher-indexed team, which is typically the more recent.
+    // If they only appear on Terminated, they go under Terminated.
+    const seenIdx = {};
     const allList = [];
     function addTech(t, teamName) {
-      if (seen[t.name]) return;
-      seen[t.name] = true;
+      const isTerm = (teamName || '').toLowerCase().trim() === 'terminated';
+      if (seenIdx[t.name] !== undefined) {
+        // Already in list — only update team if the new team is more "recent"
+        // and not Terminated (don't move someone from Team 2 to Terminated just
+        // because Terminated comes after; do move them from Team 1 to Team 2).
+        const existing = allList[seenIdx[t.name]];
+        if (!isTerm && !existing.terminated) {
+          existing.team = teamName;
+        } else if (isTerm && !existing.terminated) {
+          // They had active-team data AND terminated data. Mark them as terminated.
+          existing.terminated = true;
+        }
+        return;
+      }
+      seenIdx[t.name] = allList.length;
       allList.push({
         name: t.name,
         level: t.level || '',
         team: teamName || 'Unknown',
-        terminated: (teamName || '').toLowerCase().trim() === 'terminated',
+        terminated: isTerm,
       });
     }
     (currentData.teamPanels || []).forEach(panel => {
@@ -2557,30 +2584,151 @@
     });
   }
 
-  function renderAllTechsPanel() {
-    if (!currentData || !currentData.teamPanels) return '';
-    const allTechs = [];
-    currentData.teamPanels.forEach(panel => {
-      const isTerminatedTeam = (panel.name || '').toLowerCase().trim() === 'terminated';
-      panel.techs.forEach(t => {
-        const title = isTerminatedTeam ? 'Terminated' : (t.level || '');
-        allTechs.push({
-          name: t.name,
-          title: title,
-          team: panel.name,
-          touches: t.touches,
-          repairs: t.repairs,
-          falseAsics: t.falseAsics,
-          giveups: t.giveups,
-          graveyards: t.graveyards,
-          kickbacks: t.kickbacks || 0,
-          kickbackRate: t.kickbackRate || 0,
-          pct: t.pct,
-          bph: t.bph,
-          terminated: isTerminatedTeam,
-        });
+  // Consolidate techs by name across all team panels. Necessary because
+  // the Worker groups by (team, name) — so a tech who changed teams during
+  // the range appears as separate entries on each team panel with split
+  // stats. From a "how is this person performing" perspective, those
+  // entries should be combined into one row.
+  //
+  // Returns an array of consolidated tech objects, each with:
+  //   name, level, team (where to display them — see "team picking" below),
+  //   touches, repairs, falseAsics, giveups, graveyards, kickbacks,
+  //   kickbackRate (recomputed), pct (recomputed), bph (recomputed),
+  //   techDays (summed — minor double-count on team-transition days, accepted),
+  //   terminated (true if any entry was on Terminated),
+  //   crossTeam (true if the tech has entries on multiple distinct teams),
+  //   trend — the trend from their largest source entry (best signal),
+  //   sourceTeams — array of every team name they appeared on, ordered as
+  //                 the Worker returned them.
+  //
+  // Team picking: if the tech ever appears on a non-Terminated team, we
+  // use the LAST such team (i.e. the highest-indexed team they showed up
+  // on, which the Worker orders numerically). This is a heuristic for
+  // "their current team going forward." If they only appear on Terminated,
+  // their team is Terminated.
+  function consolidateTechsByName(data) {
+    if (!data || !data.teamPanels) return [];
+    const byName = {};
+    data.teamPanels.forEach(panel => {
+      const panelName = panel.name || '';
+      const isTerminatedTeam = panelName.toLowerCase().trim() === 'terminated';
+      (panel.techs || []).forEach(t => {
+        if (!byName[t.name]) {
+          byName[t.name] = {
+            name: t.name,
+            level: t.level || '',
+            sourceTeams: [],
+            touches: 0,
+            repairs: 0,
+            falseAsics: 0,
+            giveups: 0,
+            graveyards: 0,
+            kickbacks: 0,
+            techDays: 0,
+            terminated: false,
+            // Track the largest entry so we can grab its trend
+            _largestTouches: -1,
+            trend: null,
+          };
+        }
+        const c = byName[t.name];
+        c.sourceTeams.push(panelName);
+        c.touches += (t.touches || 0);
+        c.repairs += (t.repairs || 0);
+        c.falseAsics += (t.falseAsics || 0);
+        c.giveups += (t.giveups || 0);
+        c.graveyards += (t.graveyards || 0);
+        // Kickbacks: Worker puts the SAME full per-tech total on every team
+        // entry (we don't split kickbacks by team). So we take it once, not
+        // sum — otherwise a cross-team tech would have their kickbacks
+        // double- or triple-counted.
+        c.kickbacks = Math.max(c.kickbacks, t.kickbacks || 0);
+        c.techDays += (t.techDays || 0);
+        if (isTerminatedTeam) c.terminated = true;
+        // Use the trend from the entry where they did the most work — it has
+        // the most signal. For a tech split 80/20 across teams, the 80%
+        // team's trend is the more meaningful one.
+        if ((t.touches || 0) > c._largestTouches && t.trend) {
+          c._largestTouches = t.touches || 0;
+          c.trend = t.trend;
+        }
+        // Update level if we don't have one yet (sometimes Terminated entries
+        // have a blank level)
+        if (!c.level && t.level) c.level = t.level;
       });
     });
+
+    return Object.keys(byName).map(name => {
+      const c = byName[name];
+      // Pick display team: last non-Terminated team they appeared on, else Terminated.
+      const nonTerm = c.sourceTeams.filter(s => s.toLowerCase().trim() !== 'terminated');
+      let displayTeam;
+      if (nonTerm.length > 0) {
+        // Last entry in the order the Worker returned them — that's the
+        // highest-indexed team (Worker sorts teams numerically).
+        displayTeam = nonTerm[nonTerm.length - 1];
+      } else if (c.terminated) {
+        displayTeam = 'Terminated';
+      } else {
+        displayTeam = c.sourceTeams[0] || '';
+      }
+      const uniqueTeams = [...new Set(c.sourceTeams)];
+      const crossTeam = uniqueTeams.length > 1 &&
+                       uniqueTeams.filter(s => s.toLowerCase().trim() !== 'terminated').length > 1;
+
+      const repairable = c.touches - c.falseAsics;
+      const netRepairs = Math.max(0, c.repairs - c.kickbacks);
+      const pct = repairable > 0 ? Math.round((netRepairs / repairable) * 100) : 0;
+      const hours = c.techDays * 8;
+      const bph = hours > 0 ? Math.round((netRepairs / hours) * 100) / 100 : 0;
+      const kickbackRate = c.repairs > 0 ? Math.round((c.kickbacks / c.repairs) * 1000) / 10 : 0;
+
+      // Clean up internal field
+      delete c._largestTouches;
+
+      return {
+        name: c.name,
+        level: c.level,
+        team: displayTeam,
+        sourceTeams: uniqueTeams,
+        crossTeam,
+        terminated: c.terminated,
+        touches: c.touches,
+        repairs: c.repairs,
+        falseAsics: c.falseAsics,
+        giveups: c.giveups,
+        graveyards: c.graveyards,
+        kickbacks: c.kickbacks,
+        kickbackRate,
+        techDays: c.techDays,
+        pct,
+        bph,
+        trend: c.trend,
+      };
+    });
+  }
+
+  function renderAllTechsPanel() {
+    if (!currentData || !currentData.teamPanels) return '';
+    // Consolidate by name so techs who moved between teams appear once with
+    // their full quarterly numbers, not split across team rows.
+    const consolidated = consolidateTechsByName(currentData);
+    const allTechs = consolidated.map(t => ({
+      name: t.name,
+      title: t.terminated ? 'Terminated' : (t.level || ''),
+      team: t.team + (t.crossTeam ? ' *' : ''),  // mark cross-team techs with an asterisk
+      touches: t.touches,
+      repairs: t.repairs,
+      falseAsics: t.falseAsics,
+      giveups: t.giveups,
+      graveyards: t.graveyards,
+      kickbacks: t.kickbacks,
+      kickbackRate: t.kickbackRate,
+      pct: t.pct,
+      bph: t.bph,
+      terminated: t.terminated,
+      crossTeam: t.crossTeam,
+    }));
 
     const sorted = [...allTechs].sort((a, b) => {
       const av = a[allTechsSortKey], bv = b[allTechsSortKey];
@@ -2631,9 +2779,17 @@
       '</tr>';
     }).join("");
 
+    const hasCrossTeam = allTechs.some(t => t.crossTeam);
+    const footnote = hasCrossTeam
+      ? '<div style="font-size: 11px; color: var(--muted-2); padding: 8px 0 0; font-style: italic;">' +
+        '* Tech worked across multiple teams in this range — numbers shown are their combined totals.' +
+        '</div>'
+      : '';
+
     return '<div class="overview-table-wrap">' +
       '<table class="teams-table"><thead><tr>' + headHTML + '</tr></thead>' +
       '<tbody>' + bodyHTML + '</tbody></table>' +
+      footnote +
       '</div>';
   }
 
@@ -3898,93 +4054,124 @@
     if (!tech.trend || !tech.trend.labels || tech.trend.labels.length === 0) return [];
     const charts = [];
     const labels = tech.trend.labels;
+    const pcts = (tech.trend.pcts || []).map(v => Number.isFinite(v) ? v : 0);
+    const bphs = (tech.trend.bphs || []).map(v => Number.isFinite(v) ? v : 0);
 
-    function commonOpts(extraScales) {
+    // Auto-thin x-axis ticks to ~6 labels max when there are many buckets.
+    // Always preserves first and last so the time bounds are visible.
+    const showTickAt = (() => {
+      if (labels.length <= 7) return () => true;
+      const step = Math.max(1, Math.floor(labels.length / 6));
+      return (idx) => idx === 0 || idx === labels.length - 1 || idx % step === 0;
+    })();
+
+    function buildLineConfig(values, labAvg, color, fillColor, unit) {
+      const labLine = labels.map(() => labAvg);
+      // Y-axis bounds with breathing room
+      const all = values.concat([labAvg]).filter(v => Number.isFinite(v));
+      const lo = all.length ? Math.min(...all) : 0;
+      const hi = all.length ? Math.max(...all) : 1;
+      const span = Math.max(0.01, hi - lo);
+      const pad = span * 0.2;
+      const yMin = Math.max(0, lo - pad);
+      const yMax = unit === '%' ? Math.min(100, hi + pad) : hi + pad;
       return {
-        responsive: false,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: { enabled: false },
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Lab avg',
+              data: labLine,
+              borderColor: '#aaa',
+              borderDash: [4, 4],
+              borderWidth: 1.2,
+              pointRadius: 0,
+              fill: false,
+              tension: 0,
+            },
+            {
+              label: 'Value',
+              data: values,
+              borderColor: color,
+              backgroundColor: fillColor,
+              borderWidth: 2,
+              fill: true,
+              tension: 0.25,
+              pointRadius: 3,
+              pointBackgroundColor: color,
+              pointBorderColor: '#fff',
+              pointBorderWidth: 1,
+            },
+          ],
         },
-        scales: Object.assign({
-          x: { display: false, grid: { display: false } },
-          y: { display: false, grid: { display: false }, beginAtZero: true },
-        }, extraScales || {}),
-        elements: {
-          point: { radius: 0 },
-          line: { borderWidth: 1.5, tension: 0.2 },
+        options: {
+          responsive: false,
+          maintainAspectRatio: false,
+          animation: false,
+          layout: { padding: { top: 8, right: 10, bottom: 4, left: 4 } },
+          plugins: {
+            legend: { display: false },
+            tooltip: { enabled: false },
+          },
+          scales: {
+            x: {
+              display: true,
+              grid: { display: false },
+              ticks: {
+                color: '#555',
+                font: { size: 9 },
+                autoSkip: false,
+                maxRotation: 0,
+                minRotation: 0,
+                callback: function(val, idx) {
+                  return showTickAt(idx) ? this.getLabelForValue(val) : '';
+                },
+              },
+              border: { color: '#bbb' },
+            },
+            y: {
+              display: true,
+              min: yMin,
+              max: yMax,
+              grid: { color: '#eee' },
+              ticks: {
+                color: '#555',
+                font: { size: 9 },
+                maxTicksLimit: 4,
+                callback: function(val) {
+                  if (unit === '%') return Math.round(val) + '%';
+                  return (Math.round(val * 100) / 100).toFixed(2);
+                },
+              },
+              border: { color: '#bbb' },
+            },
+          },
         },
       };
     }
 
-    // Repair %
+    // Render each chart independently with try/catch so one failure can't
+    // kill the other. Chart.js can throw on edge cases (NaN data, zero-size
+    // canvas, etc.) — better to lose one chart than both.
     const pctCanvas = document.getElementById(containerId + '-pct');
     if (pctCanvas) {
-      // Add a horizontal lab-average line via a synthetic dataset
-      const labAvg = lab.pct;
-      const labLine = labels.map(() => labAvg);
-      charts.push(new Chart(pctCanvas, {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [
-            { data: labLine, borderColor: '#aaa', borderDash: [3, 3], borderWidth: 1, pointRadius: 0 },
-            { data: tech.trend.pcts, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.1)', fill: true },
-          ],
-        },
-        options: commonOpts({ y: { display: false, beginAtZero: true, max: 100 } }),
-      }));
+      try {
+        const cfg = buildLineConfig(pcts, lab.pct, '#2563eb', 'rgba(37,99,235,0.12)', '%');
+        charts.push(new Chart(pctCanvas, cfg));
+      } catch (e) {
+        console.error('Repair % sparkline failed:', e);
+      }
     }
 
-    // BPH
     const bphCanvas = document.getElementById(containerId + '-bph');
     if (bphCanvas) {
-      const labLine = labels.map(() => lab.bph);
-      charts.push(new Chart(bphCanvas, {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [
-            { data: labLine, borderColor: '#aaa', borderDash: [3, 3], borderWidth: 1, pointRadius: 0 },
-            { data: tech.trend.bphs, borderColor: '#16803c', backgroundColor: 'rgba(22,128,60,0.1)', fill: true },
-          ],
-        },
-        options: commonOpts(),
-      }));
-    }
-
-    // Volume bar chart (using bph * hours per bucket isn't directly available,
-    // so we approximate "activity" by per-bucket pct values transformed into
-    // a relative volume signal. Honestly, since we don't have per-bucket touch
-    // counts in the trend object, we'll show pct again with a different visual
-    // style as a "consistency" indicator rather than volume).
-    // Better: skip the 3rd sparkline if we don't have volume data, OR use
-    // BPH as a proxy for activity (a tech doing many boards per hour is busy).
-    // We chose to show "Repair % vs lab" gap as the 3rd indicator —
-    // visualizes whether they're above or below lab average across time.
-    const volCanvas = document.getElementById(containerId + '-vol');
-    if (volCanvas) {
-      // gap = tech.pct - lab.pct per bucket
-      const gap = tech.trend.pcts.map(p => p - lab.pct);
-      // Pick color based on whether average gap is positive or negative
-      const avgGap = gap.reduce((s, v) => s + v, 0) / gap.length;
-      const gapColor = avgGap >= 0 ? '#16803c' : '#b91c1c';
-      const gapFill = avgGap >= 0 ? 'rgba(22,128,60,0.15)' : 'rgba(185,28,28,0.12)';
-      charts.push(new Chart(volCanvas, {
-        type: 'bar',
-        data: {
-          labels,
-          datasets: [{
-            data: gap,
-            backgroundColor: gap.map(v => v >= 0 ? gapFill : 'rgba(185,28,28,0.15)'),
-            borderColor: gap.map(v => v >= 0 ? '#16803c' : '#b91c1c'),
-            borderWidth: 1,
-          }],
-        },
-        options: commonOpts({ y: { display: false, beginAtZero: false } }),
-      }));
+      try {
+        const cfg = buildLineConfig(bphs, lab.bph, '#16803c', 'rgba(22,128,60,0.12)', '');
+        charts.push(new Chart(bphCanvas, cfg));
+      } catch (e) {
+        console.error('BPH sparkline failed:', e);
+      }
     }
 
     return charts;
@@ -4023,7 +4210,7 @@
     return renderTechSparklines(fakeTech, lab, containerId);
   }
 
-  function sparklinesHTML(idPrefix, deltaPct, deltaBph) {
+  function sparklinesHTML(idPrefix, deltaPct, deltaBph, labels) {
     function deltaSpan(d, suffix) {
       if (Math.abs(d) < 0.5) return '<span class="delta flat">— flat</span>';
       const cls = d > 0 ? 'up' : 'down';
@@ -4031,21 +4218,24 @@
       const v = Math.round(Math.abs(d) * 10) / 10;
       return '<span class="delta ' + cls + '">' + arrow + ' ' + v + ' ' + suffix + '</span>';
     }
+    // labels (optional): { labAvgPct, labAvgBph, latestPct, latestBph }
+    const lbl = labels || {};
+    const pctFoot = (lbl.labAvgPct !== undefined || lbl.latestPct !== undefined)
+      ? '<div class="pr-spark-foot"><span>Lab: ' + (lbl.labAvgPct || '—') + '%</span><span>Latest: ' + (lbl.latestPct || '—') + '%</span></div>'
+      : '';
+    const bphFoot = (lbl.labAvgBph !== undefined || lbl.latestBph !== undefined)
+      ? '<div class="pr-spark-foot"><span>Lab: ' + (lbl.labAvgBph || '—') + '</span><span>Latest: ' + (lbl.latestBph || '—') + '</span></div>'
+      : '';
     return '<div class="pr-sparklines">' +
              '<div class="pr-spark">' +
                '<div class="pr-spark-label"><span>Repair % over period</span>' + (deltaPct !== undefined ? deltaSpan(deltaPct, 'pp') : '') + '</div>' +
                '<canvas id="' + idPrefix + '-pct"></canvas>' +
-               '<div class="pr-spark-foot"><span>early</span><span>recent</span></div>' +
+               pctFoot +
              '</div>' +
              '<div class="pr-spark">' +
                '<div class="pr-spark-label"><span>BPH over period</span>' + (deltaBph !== undefined ? deltaSpan(deltaBph, '') : '') + '</div>' +
                '<canvas id="' + idPrefix + '-bph"></canvas>' +
-               '<div class="pr-spark-foot"><span>early</span><span>recent</span></div>' +
-             '</div>' +
-             '<div class="pr-spark">' +
-               '<div class="pr-spark-label"><span>Repair % vs lab gap</span></div>' +
-               '<canvas id="' + idPrefix + '-vol"></canvas>' +
-               '<div class="pr-spark-foot"><span>bars above 0 = above lab</span><span></span></div>' +
+               bphFoot +
              '</div>' +
            '</div>';
   }
@@ -4108,8 +4298,16 @@
 
     // Lab sparkline trio (if trend data is present)
     if (data.trend && data.trend.labels && data.trend.labels.length >= 2) {
+      const pctsArr = data.trend.pcts || [];
+      const bphsArr = data.trend.bphs || [];
+      const labelLabels = {
+        labAvgPct: lab.pct,
+        labAvgBph: fmtBPH(lab.bph),
+        latestPct: pctsArr.length ? pctsArr[pctsArr.length - 1] : '—',
+        latestBph: bphsArr.length ? fmtBPH(bphsArr[bphsArr.length - 1]) : '—',
+      };
       html += '<div class="pr-section-h">Performance Trends</div>';
-      html += sparklinesHTML('spark-lab', labPctShift, labBphShift);
+      html += sparklinesHTML('spark-lab', labPctShift, labBphShift, labelLabels);
     }
 
     // Activity stats (compact row)
@@ -4317,8 +4515,22 @@
 
     // Team sparkline trio (if we have trend data)
     if (techsWithTrend.length > 0) {
+      // Compute team's last-bucket values (averaged across techs)
+      const labelsArr = techsWithTrend[0].trend.labels;
+      let lastPctSum = 0, lastPctN = 0, lastBphSum = 0, lastBphN = 0;
+      const lastIdx = labelsArr.length - 1;
+      techsWithTrend.forEach(t => {
+        if (t.trend.pcts[lastIdx] !== undefined) { lastPctSum += t.trend.pcts[lastIdx]; lastPctN++; }
+        if (t.trend.bphs[lastIdx] !== undefined) { lastBphSum += t.trend.bphs[lastIdx]; lastBphN++; }
+      });
+      const labelLabels = {
+        labAvgPct: lab.pct,
+        labAvgBph: fmtBPH(lab.bph),
+        latestPct: lastPctN > 0 ? Math.round(lastPctSum / lastPctN) : '—',
+        latestBph: lastBphN > 0 ? fmtBPH(lastBphSum / lastBphN) : '—',
+      };
       html += '<div class="pr-section-h">Performance Trends</div>';
-      html += sparklinesHTML('spark-team', teamTrendDelta.pct, teamTrendDelta.bph);
+      html += sparklinesHTML('spark-team', teamTrendDelta.pct, teamTrendDelta.bph, labelLabels);
     }
 
     // Activity summary
@@ -4396,25 +4608,51 @@
 
   // ---------- SINGLE TECH REPORT ----------
   function renderTechReport(data, techName) {
-    const teamPanel = (data.teamPanels || []).find(p => (p.techs || []).some(t => t.name === techName));
-    if (!teamPanel) return { html: '<div>Tech not found.</div>', filename: 'RepairBit_Report' };
-    const tech = teamPanel.techs.find(t => t.name === techName);
-    const teamName = teamPanel.name;
+    // Use the consolidated view so a tech who moved between teams gets a
+    // single accurate set of stats for the period. The tech "lives" on
+    // their most-recent non-Terminated team.
+    const allConsolidated = consolidateTechsByName(data);
+    const tech = allConsolidated.find(t => t.name === techName);
+    if (!tech) return { html: '<div>Tech not found.</div>', filename: 'RepairBit_Report' };
+    const teamName = tech.team;
     const lab = data.summary;
 
-    // Compute ranks
-    const teamPool = teamPanel.techs;
-    const labPool = labRankPool(data);
+    // The team panel (used for "in team" rank pool — only meaningful for
+    // techs who actually only worked on one team).
+    const teamPanel = (data.teamPanels || []).find(p => p.name === teamName);
 
-    const teamRankRep = computeRankInPool(teamPool, techName, 'repairs');
-    const teamRankPct = computeRankInPool(teamPool, techName, 'pct');
-    const teamRankBph = computeRankInPool(teamPool, techName, 'bph');
-    const labRankRep  = computeRankInPool(labPool,  techName, 'repairs');
-    const labRankPct  = computeRankInPool(labPool,  techName, 'pct');
-    const labRankBph  = computeRankInPool(labPool,  techName, 'bph');
+    // Lab pool: also consolidated by name so we rank against unique people,
+    // not against split-team entries. Exclude Terminated and Training from
+    // the lab cohort (same as the rank table on the dashboard).
+    const labPoolConsolidated = allConsolidated.filter(t => {
+      if (t.terminated) return false;
+      const lvl = (t.level || '').toLowerCase();
+      if (lvl.includes('training')) return false;
+      return true;
+    });
+
+    // Team pool — for the "in team" column. Read from the team panel directly
+    // since pool needs to include techs who are currently on this team.
+    // If the selected tech is cross-team, we'll suppress the team column entirely.
+    const teamPool = teamPanel ? teamPanel.techs : [];
+
+    // Compute ranks. For a cross-team tech, the in-team rank is meaningless
+    // (they're being compared to a team they only partly worked on with
+    // numbers that don't match what the team panel shows). Skip those.
+    const teamRankRep = tech.crossTeam ? null : computeRankInPool(teamPool, techName, 'repairs');
+    const teamRankPct = tech.crossTeam ? null : computeRankInPool(teamPool, techName, 'pct');
+    const teamRankBph = tech.crossTeam ? null : computeRankInPool(teamPool, techName, 'bph');
+    const labRankRep  = computeRankInPool(labPoolConsolidated, techName, 'repairs');
+    const labRankPct  = computeRankInPool(labPoolConsolidated, techName, 'pct');
+    const labRankBph  = computeRankInPool(labPoolConsolidated, techName, 'bph');
+
+    // For the headline: synthesize a "teamPanel-shaped" object for the
+    // generator. It needs pct + bph for "vs team" comparisons. Use the
+    // tech's current-team panel if available, otherwise lab stats.
+    const teamPanelForHeadline = teamPanel || { pct: lab.pct, bph: lab.bph };
 
     // Headline takeaway — auto-generated story-level summary
-    const headline = generateTechHeadline(data, tech, teamPanel, lab, {
+    const headline = generateTechHeadline(data, tech, teamPanelForHeadline, lab, {
       labRankPct, labRankRep,
     });
 
@@ -4426,10 +4664,18 @@
 
     // ===== Page 1: The Decision Page =====
     html += '<div class="pr-page">';
+
+    // Subtitle includes all teams when cross-team, with a tiny note
+    const otherTeams = (tech.sourceTeams || []).filter(t =>
+      t !== teamName && t.toLowerCase().trim() !== 'terminated');
+    const teamSuffix = otherTeams.length > 0
+      ? ' <em>(also worked on: ' + otherTeams.map(esc).join(', ') + ')</em>'
+      : '';
+
     html += '<div class="pr-header">' +
               '<div class="pr-header-top"><span class="pr-brand">RepairBit Lab</span><span class="pr-gen">Generated ' + esc(generatedAt()) + '</span></div>' +
               '<div class="pr-title">' + esc(tech.name) + '</div>' +
-              '<div class="pr-subtitle"><strong>' + esc(tech.level || 'Lab Tech') + '</strong> · <strong>' + esc(teamName) + '</strong> · ' + (tech.techDays || 0) + ' active day' + ((tech.techDays || 0) === 1 ? '' : 's') + ' in ' + esc(rangeLabel()) + '</div>' +
+              '<div class="pr-subtitle"><strong>' + esc(tech.level || 'Lab Tech') + '</strong> · <strong>' + esc(teamName) + '</strong>' + teamSuffix + ' · ' + (tech.techDays || 0) + ' active day' + ((tech.techDays || 0) === 1 ? '' : 's') + ' in ' + esc(rangeLabel()) + '</div>' +
             '</div>';
 
     // Headline takeaway — the "tell me what's going on" sentence
@@ -4456,22 +4702,47 @@
     // Sparkline trio — only render the placeholder HTML here; chart drawing
     // happens after DOM insertion via the sparklineSetup callback below.
     if (tech.trend && tech.trend.labels && tech.trend.labels.length >= 2) {
+      const pctsArr = tech.trend.pcts || [];
+      const bphsArr = tech.trend.bphs || [];
+      const labelLabels = {
+        labAvgPct: lab.pct,
+        labAvgBph: fmtBPH(lab.bph),
+        latestPct: pctsArr.length ? pctsArr[pctsArr.length - 1] : '—',
+        latestBph: bphsArr.length ? fmtBPH(bphsArr[bphsArr.length - 1]) : '—',
+      };
       html += '<div class="pr-section-h">Performance Trends</div>';
-      html += sparklinesHTML('spark-tech', pctShift, bphShift);
+      html += sparklinesHTML('spark-tech', pctShift, bphShift, labelLabels);
     }
 
-    // Rank Breakdown
+    // Rank Breakdown — if the tech is cross-team, the "in team" column is
+    // misleading (they're being ranked against a team they only partly
+    // worked on, using their full numbers). Drop that column and add a
+    // small caption explaining why.
     html += '<div class="pr-section-h">Rank Breakdown</div>';
-    html += '<div class="pr-rank">' +
-              '<table class="pr-rank-table">' +
-                '<thead><tr><th></th><th>In ' + esc(teamName) + '</th><th>In Lab</th></tr></thead>' +
-                '<tbody>' +
-                  '<tr><td>Repairs</td>' + rankCellPdf(teamRankRep) + rankCellPdf(labRankRep) + '</tr>' +
-                  '<tr><td>Repair %</td>' + rankCellPdf(teamRankPct) + rankCellPdf(labRankPct) + '</tr>' +
-                  '<tr><td>BPH</td>' + rankCellPdf(teamRankBph) + rankCellPdf(labRankBph) + '</tr>' +
-                '</tbody>' +
-              '</table>' +
-            '</div>';
+    if (tech.crossTeam) {
+      html += '<div class="pr-rank">' +
+                '<table class="pr-rank-table">' +
+                  '<thead><tr><th></th><th>In Lab</th></tr></thead>' +
+                  '<tbody>' +
+                    '<tr><td>Repairs</td>' + rankCellPdf(labRankRep) + '</tr>' +
+                    '<tr><td>Repair %</td>' + rankCellPdf(labRankPct) + '</tr>' +
+                    '<tr><td>BPH</td>' + rankCellPdf(labRankBph) + '</tr>' +
+                  '</tbody>' +
+                '</table>' +
+                '<div style="font-size: 8.5pt; color: #888; font-style: italic; margin-top: 6px;">Worked across multiple teams in this period — team-level rank omitted.</div>' +
+              '</div>';
+    } else {
+      html += '<div class="pr-rank">' +
+                '<table class="pr-rank-table">' +
+                  '<thead><tr><th></th><th>In ' + esc(teamName) + '</th><th>In Lab</th></tr></thead>' +
+                  '<tbody>' +
+                    '<tr><td>Repairs</td>' + rankCellPdf(teamRankRep) + rankCellPdf(labRankRep) + '</tr>' +
+                    '<tr><td>Repair %</td>' + rankCellPdf(teamRankPct) + rankCellPdf(labRankPct) + '</tr>' +
+                    '<tr><td>BPH</td>' + rankCellPdf(teamRankBph) + rankCellPdf(labRankBph) + '</tr>' +
+                  '</tbody>' +
+                '</table>' +
+              '</div>';
+    }
 
     // Outcomes
     html += '<div class="pr-section-h">Outcomes</div>';
@@ -4508,6 +4779,137 @@
   // ============================================================
   // Generate and print
   // ============================================================
+  // ============================================================
+  // Download report as a self-contained HTML file.
+  // Old version used window.print(). New version (per user request)
+  // generates a standalone .html file the user can email, file, or
+  // open later. Chart.js canvases are captured as data:image/png
+  // so the file is fully portable — no dependencies, no internet
+  // required to view, charts stay frozen as snapshots.
+  // ============================================================
+
+  // Extract the print stylesheet rules from the current page so the
+  // downloaded HTML file gets the same styling. We pull the @media
+  // print rules out of document.styleSheets, strip the @media wrapper,
+  // and apply them as regular rules in the standalone file.
+  //
+  // Important: skip rules whose only purpose is to HIDE the dashboard
+  // during printing (body *, html, body, .print-container, etc.). The
+  // standalone file has no dashboard to hide — applying those rules
+  // would make the entire report invisible.
+  function extractPrintCss() {
+    let css = '';
+    // Selectors whose only purpose was to neutralize the dashboard for printing.
+    // We do not want any of these in the standalone file.
+    function shouldSkipRule(selectorText) {
+      if (!selectorText) return false;
+      const s = selectorText.trim();
+      // The body-hide rule and its visibility overrides
+      if (s === 'body *') return true;
+      if (s === '.print-container, .print-container *') return true;
+      if (s === '.print-container') return true;
+      // The html, body, .print-container theme flip — we set our own body styles
+      if (s === 'html, body, .print-container') return true;
+      return false;
+    }
+
+    try {
+      for (const sheet of document.styleSheets) {
+        let rules;
+        try { rules = sheet.cssRules; } catch (e) { continue; /* CORS-blocked stylesheet */ }
+        if (!rules) continue;
+        for (const rule of rules) {
+          // CSSMediaRule for @media print. Check by constructor name as well
+          // as the (older) numeric .type, since some browsers don't expose .type.
+          const isMediaRule = (rule.type === 4) ||
+                              (rule.constructor && rule.constructor.name === 'CSSMediaRule');
+          if (!isMediaRule) continue;
+          if (!rule.media || !rule.media.mediaText) continue;
+          if (!rule.media.mediaText.toLowerCase().includes('print')) continue;
+          for (const inner of rule.cssRules) {
+            // Skip @page (we set our own in the standalone)
+            if (inner.constructor && inner.constructor.name === 'CSSPageRule') continue;
+            // Skip rules that hide the dashboard
+            if (inner.selectorText && shouldSkipRule(inner.selectorText)) continue;
+            css += inner.cssText + '\n';
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to extract print CSS:', e);
+    }
+    return css;
+  }
+
+  // Convert all <canvas> elements inside container to <img> with the
+  // canvas's image data inlined as a data URL. Mutates the DOM in place.
+  function freezeCanvasesAsImages(container) {
+    const canvases = container.querySelectorAll('canvas');
+    canvases.forEach(canvas => {
+      try {
+        const dataUrl = canvas.toDataURL('image/png');
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        // Preserve the canvas's rendered size so the layout stays identical
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width > 0) img.style.width = rect.width + 'px';
+        if (rect.height > 0) img.style.height = rect.height + 'px';
+        img.style.display = 'block';
+        // Copy over any classes that might be styled
+        if (canvas.className) img.className = canvas.className;
+        canvas.parentNode.replaceChild(img, canvas);
+      } catch (e) {
+        console.error('Canvas snapshot failed for', canvas.id, e);
+      }
+    });
+  }
+
+  // Build a self-contained HTML document around the report body.
+  function buildStandaloneHtml(reportHtml, title, css) {
+    if (!css || css.length < 100) {
+      console.warn('Report CSS extraction returned little/no CSS. The downloaded file may look unstyled.');
+    }
+    return '<!DOCTYPE html>\n<html lang="en">\n<head>\n' +
+           '<meta charset="UTF-8">\n' +
+           '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+           '<title>' + esc(title) + '</title>\n' +
+           '<style>\n' +
+           '  /* Base styling */\n' +
+           '  * { box-sizing: border-box; }\n' +
+           '  html, body { margin: 0; padding: 0; background: #fff; color: #111; font-family: \'Inter\', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }\n' +
+           '  body { padding: 0.5in; max-width: 8.5in; margin: 0 auto; }\n' +
+           '  @media screen and (max-width: 8.5in) { body { padding: 24px 16px; } }\n' +
+           '  @media print {\n' +
+           '    @page { size: letter portrait; margin: 0.5in; }\n' +
+           '    body { padding: 0; max-width: none; }\n' +
+           '  }\n' +
+           '  /* Report-specific rules extracted from the dashboard print stylesheet */\n' +
+           css + '\n' +
+           '  /* On-screen viewing: avoid forcing page breaks (only matters when printing) */\n' +
+           '  @media screen { .pr-page { page-break-after: auto !important; } }\n' +
+           '  @media print { .pr-page { page-break-after: always; } .pr-page:last-child { page-break-after: auto; } }\n' +
+           '</style>\n' +
+           '</head>\n<body>\n' +
+           reportHtml +
+           '\n</body>\n</html>';
+  }
+
+  // Trigger a browser download of the given text content as a file.
+  function downloadFile(filename, content, mimeType) {
+    const blob = new Blob([content], { type: (mimeType || 'text/html') + ';charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+  }
+
   function generatePdfReport() {
     const data = pdfState.dataCache[pdfRangeKey()];
     if (!data || !pdfState.scope) return;
@@ -4527,53 +4929,54 @@
     }
     if (!result) return;
 
-    // Pause rotation so it doesn't interfere with the print dialog opening
-    const wasInPresentation = !browseMode;
-    if (wasInPresentation) {
-      if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; }
-      if (progTimer) { cancelAnimationFrame(progTimer); progTimer = null; }
-    }
-
-    // Inject the report HTML
+    // Inject the report HTML into a hidden render container so Chart.js
+    // can draw to real canvases. Needs to be on-screen-sized (not 0×0)
+    // but invisible to avoid flashing the report in front of the user.
     const container = document.getElementById('printContainer');
     container.innerHTML = result.html;
+    container.style.display = 'block';
+    container.style.position = 'fixed';
+    container.style.left = '0';
+    container.style.top = '0';
+    container.style.width = '7.5in';
+    container.style.opacity = '0';
+    container.style.pointerEvents = 'none';
+    container.style.zIndex = '-1';
+    container.style.background = '#fff';
 
-    // Render any sparklines into freshly-mounted canvases. Chart.js can't
-    // render into a display:none canvas (size would be 0×0), so we briefly
-    // position the print container off-screen but visible so canvases have
-    // real dimensions to draw against. The print stylesheet will reset
-    // positioning when @media print kicks in.
+    // Render the sparkline charts
     let sparkCharts = [];
     if (typeof result.sparklineSetup === 'function') {
-      container.style.cssText = 'display:block;position:absolute;left:-9999px;top:0;width:7.5in;visibility:visible;';
       try { sparkCharts = result.sparklineSetup() || []; } catch (e) { console.error('Sparkline render failed:', e); }
     }
 
-    // Set page title to drive the browser's default "Save as PDF" filename
-    const originalTitle = document.title;
-    document.title = result.filename;
-
-    // Close picker so it doesn't interfere
+    // Give Chart.js a moment to finish drawing before snapshotting canvases.
+    // 350ms is comfortably enough — Chart.js draws synchronously, but the
+    // browser may batch paint operations.
     closePdfPicker();
-
-    // Fire print after a short delay so the DOM, CSS, and charts all settle
     setTimeout(() => {
-      window.print();
-      // Restore after the user closes the print dialog (or after a fallback timeout)
-      const restore = () => {
-        document.title = originalTitle;
-        // Destroy any chart instances we created
+      try {
+        // Snapshot each canvas as a PNG-data-URL <img> so the standalone
+        // file doesn't need Chart.js to display the report.
+        freezeCanvasesAsImages(container);
+
+        // Pull out the inner HTML (now with <img> instead of <canvas>)
+        const reportHtml = container.innerHTML;
+        const printCss = extractPrintCss();
+        const standalone = buildStandaloneHtml(reportHtml, result.filename, printCss);
+
+        downloadFile(result.filename + '.html', standalone, 'text/html');
+      } catch (e) {
+        console.error('Report generation failed:', e);
+        alert('Sorry — report generation failed. Check the browser console for details.');
+      } finally {
+        // Always clean up: destroy Chart instances, clear the container
         sparkCharts.forEach(c => { try { c.destroy(); } catch(e) {} });
         sparkCharts = [];
         container.style.cssText = '';
         container.innerHTML = '';
-        if (wasInPresentation) startRotation();
-        window.removeEventListener('afterprint', restore);
-      };
-      window.addEventListener('afterprint', restore);
-      // Fallback for browsers without afterprint
-      setTimeout(restore, 60000);
-    }, 250);
+      }
+    }, 350);
   }
 
   // ============ Boot ============

@@ -1421,6 +1421,13 @@
     .pr-kpi-sub .delta-up { color: #16803c; font-weight: 600; }
     .pr-kpi-sub .delta-down { color: #b91c1c; font-weight: 600; }
     .pr-kpi-sub .delta-flat { color: #555; }
+    .pr-kpi-prior {
+      font-size: 8.5pt;
+      color: #666;
+      margin-top: 4px;
+      padding-top: 4px;
+      border-top: 1px dashed #ddd;
+    }
 
     /* Section heading */
     .pr-section-h {
@@ -3669,6 +3676,45 @@
     return labels[pdfState.range] || pdfState.range;
   }
 
+  // Short label for the period IMMEDIATELY BEFORE the current range — used
+  // as the prefix on the prior-period KPI line ("Last Month: 41%").
+  function priorPeriodLabel() {
+    const labels = {
+      today: 'Yesterday',
+      week: 'Last Wk',
+      month: 'Last Mo',
+      quarter: 'Last Qtr',
+      ytd: 'Last Yr',
+    };
+    return labels[pdfState.range] || null; // null for 'all', 'custom'
+  }
+
+  // Render a one-line "vs prior period" footer for a KPI tile.
+  // Pass current value, prior value, optional formatter (for BPH etc), and
+  // unit string (for delta formatting). Returns an empty string when there's
+  // no prior data to compare against.
+  //   priorKpiLine(30, 41, null, 'pp')   →  'Last Mo: 41% · ↓ 11 pp from prior'
+  //   priorKpiLine(0.34, 0.48, fmtBPH, '') →  'Last Mo: 0.48 · ↓ 0.14 from prior'
+  function priorKpiLine(curVal, priorVal, formatter, deltaUnit, valueSuffix) {
+    const lbl = priorPeriodLabel();
+    if (!lbl) return ''; // no prior period for this range
+    if (priorVal === null || priorVal === undefined) return '';
+    const fmt = formatter || (v => v);
+    const suffix = valueSuffix || '';
+    const priorDisplay = fmt(priorVal) + suffix;
+    const diff = curVal - priorVal;
+    let deltaDisplay;
+    if (Math.abs(diff) < 0.05) {
+      deltaDisplay = '— flat';
+    } else {
+      const arrow = diff > 0 ? '↑' : '↓';
+      const magnitude = formatter ? formatter(Math.abs(diff)) : Math.abs(Math.round(diff * 10) / 10);
+      const unitSuffix = deltaUnit ? ' ' + deltaUnit : '';
+      deltaDisplay = arrow + ' ' + magnitude + unitSuffix + ' from prior';
+    }
+    return '<div class="pr-kpi-prior">' + esc(lbl) + ': ' + priorDisplay + ' · ' + deltaDisplay + '</div>';
+  }
+
   // Stable filename-safe label for a range
   function rangeFilenameSafe() {
     if (pdfState.range === 'custom') return pdfState.customFrom + '_to_' + pdfState.customTo;
@@ -4053,16 +4099,46 @@
   function renderTechSparklines(tech, lab, containerId) {
     if (!tech.trend || !tech.trend.labels || tech.trend.labels.length === 0) return [];
     const charts = [];
-    const labels = tech.trend.labels;
-    const pcts = (tech.trend.pcts || []).map(v => Number.isFinite(v) ? v : 0);
-    const bphs = (tech.trend.bphs || []).map(v => Number.isFinite(v) ? v : 0);
 
-    // Auto-thin x-axis ticks to ~6 labels max when there are many buckets.
-    // Always preserves first and last so the time bounds are visible.
+    // Drop trailing buckets that have 0 bph AND 0 pct — typically an
+    // in-progress "today" bucket where the tech logged a board but hasn't
+    // completed an outcome yet. Including it makes the chart dive to zero
+    // at the end, which is misleading. We keep removing from the tail until
+    // we hit a bucket with real activity.
+    let lblArr = tech.trend.labels.slice();
+    let pctArr = (tech.trend.pcts || []).slice().map(v => Number.isFinite(v) ? v : 0);
+    let bphArr = (tech.trend.bphs || []).slice().map(v => Number.isFinite(v) ? v : 0);
+    while (lblArr.length > 1 && pctArr[pctArr.length - 1] === 0 && bphArr[bphArr.length - 1] === 0) {
+      lblArr.pop(); pctArr.pop(); bphArr.pop();
+    }
+
+    // Shorten "May 14" → "5/14" so labels fit in narrow chart widths.
+    // Worker emits e.g. "May 14" for day buckets, "Wk May 14" for week, and
+    // "May 2026" for month. We compact day labels only; week/month stay as-is.
+    const compact = (s) => {
+      // Detect "MMM DD" pattern (no year) — those are daily labels
+      const m = (s || '').match(/^([A-Za-z]{3})\s+(\d{1,2})$/);
+      if (!m) return s;
+      const months = { Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12 };
+      const mNum = months[m[1]];
+      return mNum ? (mNum + '/' + m[2]) : s;
+    };
+    const labels = lblArr.map(compact);
+    const pcts = pctArr;
+    const bphs = bphArr;
+
+    // Auto-thin x-axis. Cap at 5 visible ticks regardless of bucket count —
+    // anything more than that crowds even compact labels in a narrow chart.
+    // Always preserve first and last so the time range bounds are clear.
     const showTickAt = (() => {
-      if (labels.length <= 7) return () => true;
-      const step = Math.max(1, Math.floor(labels.length / 6));
-      return (idx) => idx === 0 || idx === labels.length - 1 || idx % step === 0;
+      const MAX_TICKS = 5;
+      if (labels.length <= MAX_TICKS) return () => true;
+      const step = (labels.length - 1) / (MAX_TICKS - 1);
+      const keep = new Set();
+      for (let i = 0; i < MAX_TICKS; i++) {
+        keep.add(Math.round(i * step));
+      }
+      return (idx) => keep.has(idx);
     })();
 
     function buildLineConfig(values, labAvg, color, fillColor, unit) {
@@ -4221,10 +4297,10 @@
     // labels (optional): { labAvgPct, labAvgBph, latestPct, latestBph }
     const lbl = labels || {};
     const pctFoot = (lbl.labAvgPct !== undefined || lbl.latestPct !== undefined)
-      ? '<div class="pr-spark-foot"><span>Lab: ' + (lbl.labAvgPct || '—') + '%</span><span>Latest: ' + (lbl.latestPct || '—') + '%</span></div>'
+      ? '<div class="pr-spark-foot"><span>Lab: ' + (lbl.labAvgPct || '—') + '%</span><span>Period: ' + (lbl.latestPct || '—') + '%</span></div>'
       : '';
     const bphFoot = (lbl.labAvgBph !== undefined || lbl.latestBph !== undefined)
-      ? '<div class="pr-spark-foot"><span>Lab: ' + (lbl.labAvgBph || '—') + '</span><span>Latest: ' + (lbl.latestBph || '—') + '</span></div>'
+      ? '<div class="pr-spark-foot"><span>Lab: ' + (lbl.labAvgBph || '—') + '</span><span>Period: ' + (lbl.latestBph || '—') + '</span></div>'
       : '';
     return '<div class="pr-sparklines">' +
              '<div class="pr-spark">' +
@@ -4681,34 +4757,41 @@
     // Headline takeaway — the "tell me what's going on" sentence
     html += headlineHTML(headline);
 
-    // KPIs with vs-team and vs-lab comparison
+    // KPIs with vs-team / vs-lab and (where available) vs-prior-period
+    const prior = tech.priorPeriod || null;
     html += '<div class="pr-kpis">';
     html += '<div class="pr-kpi"><div class="pr-kpi-label">Repair %</div>' +
               '<div class="pr-kpi-value ' + prPctClass(tech.pct) + '">' + tech.pct + '%</div>' +
               '<div class="pr-kpi-sub">' + fmtDelta(tech.pct, teamPanel.pct, 'team') + ' · ' + fmtDelta(tech.pct, lab.pct, 'lab') + '</div>' +
+              (prior ? priorKpiLine(tech.pct, prior.pct, null, 'pp', '%') : '') +
             '</div>';
     html += '<div class="pr-kpi"><div class="pr-kpi-label">BPH</div>' +
               '<div class="pr-kpi-value ' + prBphClass(tech.bph) + '">' + fmtBPH(tech.bph) + '</div>' +
               '<div class="pr-kpi-sub">' + fmtBphDelta(tech.bph, teamPanel.bph, 'team') + ' · ' + fmtBphDelta(tech.bph, lab.bph, 'lab') + '</div>' +
+              (prior ? priorKpiLine(tech.bph, prior.bph, fmtBPH, '', '') : '') +
             '</div>';
     const kbN = tech.kickbacks || 0;
     const kbR = tech.kickbackRate || 0;
     html += '<div class="pr-kpi"><div class="pr-kpi-label">Kickbacks</div>' +
               '<div class="pr-kpi-value ' + prKbClass(kbR, kbN) + '">' + kbN + '</div>' +
               '<div class="pr-kpi-sub">' + (kbN === 0 ? 'No kickbacks this period' : fmtRate(kbR) + '% rate · vs lab ' + fmtRate(lab.kickbackRate || 0) + '%') + '</div>' +
+              (prior ? priorKpiLine(kbN, prior.kickbacks, null, '', '') : '') +
             '</div>';
     html += '</div>';
 
     // Sparkline trio — only render the placeholder HTML here; chart drawing
     // happens after DOM insertion via the sparklineSetup callback below.
     if (tech.trend && tech.trend.labels && tech.trend.labels.length >= 2) {
-      const pctsArr = tech.trend.pcts || [];
-      const bphsArr = tech.trend.bphs || [];
+      // "Latest" footer shows the tech's OVERALL period values, not the
+      // last-bucket values. Last-bucket can be misleading (e.g. today's
+      // bucket may be in-progress with 0 completed outcomes, showing 0).
+      // The overall pct/bph are what the manager is comparing against the
+      // dashed lab average line in the chart, so it stays meaningful.
       const labelLabels = {
         labAvgPct: lab.pct,
         labAvgBph: fmtBPH(lab.bph),
-        latestPct: pctsArr.length ? pctsArr[pctsArr.length - 1] : '—',
-        latestBph: bphsArr.length ? fmtBPH(bphsArr[bphsArr.length - 1]) : '—',
+        latestPct: tech.pct,
+        latestBph: fmtBPH(tech.bph),
       };
       html += '<div class="pr-section-h">Performance Trends</div>';
       html += sparklinesHTML('spark-tech', pctShift, bphShift, labelLabels);

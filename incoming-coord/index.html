@@ -187,17 +187,21 @@
   .section-divider { display: flex; align-items: baseline; justify-content: space-between; margin: 24px 0 16px; }
   .section-title { font-size: 16px; font-weight: 600; color: var(--text); letter-spacing: -0.2px; }
   .section-meta { font-size: 12px; color: var(--muted-2); }
-  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; overflow-x: auto; }
   .coord-table { width: 100%; border-collapse: collapse; }
-  .coord-table th { font-size: 11px; font-weight: 500; color: var(--muted); padding: 14px 18px; text-align: center; border-bottom: 1px solid var(--border); background: var(--surface-2); cursor: pointer; user-select: none; }
-  .coord-table th:first-child { text-align: left; }
+  .coord-table th { font-size: 11px; font-weight: 500; color: var(--muted); padding: 14px 12px; text-align: center; border-bottom: 1px solid var(--border); background: var(--surface-2); cursor: pointer; user-select: none; white-space: nowrap; }
+  .coord-table th:first-child { text-align: left; padding-left: 18px; }
+  .coord-table th:last-child { padding-right: 18px; }
   .coord-table th:hover { color: var(--text-2); }
   .coord-table th.sorted { color: var(--text); }
   .sort-arrow { margin-left: 4px; font-size: 10px; }
-  .coord-table td { padding: 14px 18px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; text-align: center; }
-  .coord-table td:first-child { text-align: left; }
+  .coord-table td { padding: 12px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; text-align: center; }
+  .coord-table td:first-child { text-align: left; padding-left: 18px; }
+  .coord-table td:last-child { padding-right: 18px; }
   .coord-table tr:last-child td { border-bottom: none; }
   .coord-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+  .coord-table td.err-cell { color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .coord-table td.err-cell.zero { color: var(--muted-2); }
   .coord-name-cell { font-weight: 600; color: var(--text) !important; }
   .shift-pill { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }
   .shift-pill.day { background: var(--day-bg); color: var(--day); }
@@ -786,7 +790,7 @@
     });
   }
 
-  function renderTable(coordStats) {
+  function renderTable(coordStats, labErrorTypes) {
     const wrap = document.getElementById("tableWrap");
     const meta = document.getElementById("tableMeta");
     if (coordStats.length === 0) {
@@ -796,8 +800,38 @@
     }
     meta.textContent = coordStats.length + " coordinator" + (coordStats.length === 1 ? "" : "s");
 
-    const sorted = [...coordStats].sort((a, b) => {
-      const av = a[sortKey], bv = b[sortKey];
+    // Build error type columns from the lab-wide list so every row has the
+    // same columns in the same order (most common error first). Skip if no
+    // error types exist in this range.
+    const errCols = (labErrorTypes || []).map(e => ({
+      key:   'et:' + (e.name || '').toLowerCase().trim(),
+      lower: (e.name || '').toLowerCase().trim(),
+      name:  e.name,
+    }));
+
+    // For each coordinator, build a lookup so we can read their count for
+    // any given error type by name.
+    const coordsWithLookup = coordStats.map(c => {
+      const lookup = {};
+      (c.errorTypes || []).forEach(e => {
+        const key = (e.name || '').toLowerCase().trim();
+        lookup[key] = e.count;
+      });
+      return { ...c, _errLookup: lookup };
+    });
+
+    // Sort. Sort keys for error-type columns are 'et:<lowername>' — read
+    // count from _errLookup (default 0).
+    const sorted = [...coordsWithLookup].sort((a, b) => {
+      let av, bv;
+      if (sortKey.startsWith('et:')) {
+        const ekey = sortKey.slice(3);
+        av = a._errLookup[ekey] || 0;
+        bv = b._errLookup[ekey] || 0;
+      } else {
+        av = a[sortKey];
+        bv = b[sortKey];
+      }
       let cmp;
       if (typeof av === "string") cmp = av.localeCompare(bv);
       else cmp = av - bv;
@@ -805,30 +839,48 @@
     });
 
     const arrow = sortDir === "desc" ? "▼" : "▲";
+
+    // Column order: Coordinator, Shift, Boards, [error cols...], Days Worked, BPH
     const cols = [
-      { key: "name", label: "Coordinator" },
+      { key: "name",    label: "Coordinator" },
       { key: "primary", label: "Shift" },
-      { key: "units", label: "Boards" },
-      { key: "days", label: "Days Worked" },
-      { key: "bph", label: "BPH" }
+      { key: "units",   label: "Boards" },
+      ...errCols.map(ec => ({
+        key:   ec.key,
+        label: ec.name,
+        isErr: true,
+        lower: ec.lower,
+      })),
+      { key: "days",    label: "Days Worked" },
+      { key: "bph",     label: "BPH" },
     ];
 
     const headHTML = cols.map(c => {
       const cls = c.key === sortKey ? " sorted" : "";
       const ar = c.key === sortKey ? '<span class="sort-arrow">' + arrow + '</span>' : '';
-      return '<th class="' + cls.trim() + '" onclick="sortBy(\'' + c.key + '\')">' + c.label + ar + '</th>';
+      // Use a data-attr instead of string interp inside onclick so column keys
+      // with colons (et:asic error) don't break the quoting.
+      return '<th class="' + cls.trim() + '"' +
+             ' data-sortkey="' + esc(c.key) + '"' +
+             ' onclick="sortBy(this.dataset.sortkey)">' +
+             esc(c.label) + ar + '</th>';
     }).join("");
 
     const bodyHTML = sorted.map(c => {
       const pillCls = c.primary.toLowerCase();
       const bCls = bphClass(c.bph);
-      return '<tr>' +
-        '<td class="coord-name-cell">' + esc(c.name) + '</td>' +
-        '<td><span class="shift-pill ' + pillCls + '">' + esc(c.primary) + '</span></td>' +
-        '<td>' + c.units.toLocaleString() + '</td>' +
-        '<td>' + c.days.toLocaleString() + '</td>' +
-        '<td class="bph-cell ' + bCls + '">' + fmtBPH(c.bph) + '</td>' +
-      '</tr>';
+      let cells = '<td class="coord-name-cell">' + esc(c.name) + '</td>' +
+                  '<td><span class="shift-pill ' + pillCls + '">' + esc(c.primary) + '</span></td>' +
+                  '<td>' + c.units.toLocaleString() + '</td>';
+      // One cell per error type column
+      errCols.forEach(ec => {
+        const v = c._errLookup[ec.lower] || 0;
+        const cls = v === 0 ? 'err-cell zero' : 'err-cell';
+        cells += '<td class="' + cls + '">' + v.toLocaleString() + '</td>';
+      });
+      cells += '<td>' + c.days.toLocaleString() + '</td>' +
+               '<td class="bph-cell ' + bCls + '">' + fmtBPH(c.bph) + '</td>';
+      return '<tr>' + cells + '</tr>';
     }).join("");
 
     wrap.innerHTML = '<table class="coord-table"><thead><tr>' + headHTML + '</tr></thead><tbody>' + bodyHTML + '</tbody></table>';
@@ -944,7 +996,7 @@
     renderHourlyChart(slice.hourlyAvg || new Array(24).fill(0));
 
     // Table
-    renderTable(slice.coordStats);
+    renderTable(slice.coordStats, slice.errorTypes);
   }
 
   function esc(str) {

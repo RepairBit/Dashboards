@@ -2793,7 +2793,34 @@
         '</div>'
       : '';
 
-    return '<div class="overview-table-wrap">' +
+    // Lab-wide meta strip — matches the per-team header. Tech count here uses
+    // the consolidated list (deduped by name), so a tech who moved between
+    // teams is counted once.
+    const lab = currentData.summary || {};
+    const labTechCount = consolidated.length;
+    const labKickbacks = lab.kickbacks || 0;
+    const labKbRate = lab.kickbackRate || 0;
+    const labKbCls = kbRateClass(labKbRate, labKickbacks);
+    const labKbMeta = labKickbacks === 0
+      ? '<span class="sep">|</span><span class="kb green">0 Kickbacks</span>'
+      : '<span class="sep">|</span><span class="kb ' + labKbCls + '">' + labKickbacks + ' Kickbacks · ' + fmtRate(labKbRate) + '%</span>';
+    const headerHTML =
+      '<div class="team-header">' +
+        '<div class="team-name">All Techs</div>' +
+        '<div class="team-meta">' +
+          '<strong>' + labTechCount + '</strong> Techs' +
+          '<span class="sep">|</span>' +
+          '<strong>' + (lab.touches || 0).toLocaleString() + '</strong> Touches' +
+          '<span class="sep">|</span>' +
+          '<span class="pct ' + pctClass(lab.pct || 0) + '">' + (lab.pct || 0) + '% Repair</span>' +
+          '<span class="sep">|</span>' +
+          '<span class="bph ' + bphClass(lab.bph || 0) + '">' + fmtBPH(lab.bph || 0) + ' BPH</span>' +
+          labKbMeta +
+        '</div>' +
+      '</div>';
+
+    return headerHTML +
+      '<div class="overview-table-wrap">' +
       '<table class="teams-table"><thead><tr>' + headHTML + '</tr></thead>' +
       '<tbody>' + bodyHTML + '</tbody></table>' +
       footnote +
@@ -3193,7 +3220,35 @@
         '<td class="bph-cell ' + bphClass(t.bph) + '">' + fmtBPH(t.bph) + '</td>' +
       '</tr>';
     }).join("");
+    // Lab-wide meta strip — same shape as the per-team header strip.
+    // Tech count: unique consolidated techs across the lab (cross-team techs
+    // counted once). Falls back to summing teamSummaries if consolidation
+    // isn't available for some reason.
+    const lab = currentData.summary || {};
+    const consolidatedTechs = consolidateTechsByName(currentData);
+    const labTechCount = consolidatedTechs.length ||
+      (currentData.teamSummaries || []).reduce((s, t) => s + (t.techCount || 0), 0);
+    const labKickbacks = lab.kickbacks || 0;
+    const labKbRate = lab.kickbackRate || 0;
+    const labKbCls = kbRateClass(labKbRate, labKickbacks);
+    const labKbMeta = labKickbacks === 0
+      ? '<span class="sep">|</span><span class="kb green">0 Kickbacks</span>'
+      : '<span class="sep">|</span><span class="kb ' + labKbCls + '">' + labKickbacks + ' Kickbacks · ' + fmtRate(labKbRate) + '%</span>';
+
     overviewPanel.innerHTML =
+      '<div class="team-header">' +
+        '<div class="team-name">Lab Overview</div>' +
+        '<div class="team-meta">' +
+          '<strong>' + labTechCount + '</strong> Techs' +
+          '<span class="sep">|</span>' +
+          '<strong>' + (lab.touches || 0).toLocaleString() + '</strong> Touches' +
+          '<span class="sep">|</span>' +
+          '<span class="pct ' + pctClass(lab.pct || 0) + '">' + (lab.pct || 0) + '% Repair</span>' +
+          '<span class="sep">|</span>' +
+          '<span class="bph ' + bphClass(lab.bph || 0) + '">' + fmtBPH(lab.bph || 0) + ' BPH</span>' +
+          labKbMeta +
+        '</div>' +
+      '</div>' +
       '<div class="overview-table-wrap">' +
       '<table class="teams-table"><thead><tr>' +
       '<th>Team</th><th>Techs</th><th>Touches</th><th>Repairs</th>' +

@@ -3223,8 +3223,8 @@
     // Lab-wide meta strip — same shape as the per-team header strip.
     // Tech count: unique consolidated techs across the lab (cross-team techs
     // counted once). Falls back to summing teamSummaries if consolidation
-    // isn't available for some reason.
-    const lab = currentData.summary || {};
+    // isn't available for some reason. (`lab` is already declared earlier
+    // in this function — reusing it here.)
     const consolidatedTechs = consolidateTechsByName(currentData);
     const labTechCount = consolidatedTechs.length ||
       (currentData.teamSummaries || []).reduce((s, t) => s + (t.techCount || 0), 0);

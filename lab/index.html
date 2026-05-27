@@ -581,6 +581,41 @@
   .outcome-bar-giveup { background: var(--giveup); }
   .outcome-bar-grave  { background: var(--grave); }
 
+  /* === KPI delta pill (vs last period) === */
+  /* Sits on the right edge of each kpi-head, opposite the label. Color
+     follows whether the delta is good (green) or bad (red). Empty pill
+     hides itself so cards without a prior period don't show a stray "—". */
+  .kpi-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .kpi-delta {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 999px;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+  .kpi-delta:empty { display: none; }
+  .kpi-delta.up   { background: var(--green-bg); color: var(--green); }
+  .kpi-delta.down { background: var(--red-bg); color: var(--red); }
+  .kpi-delta.flat { background: rgba(255,255,255,0.06); color: var(--muted); }
+  /* Some deltas are "down is good" (kickbacks, give-ups, graveyards, false ASICs).
+     For those, swap the green/red mapping. */
+  .kpi-delta.inverse.up   { background: var(--red-bg);   color: var(--red); }
+  .kpi-delta.inverse.down { background: var(--green-bg); color: var(--green); }
+  /* === Pace projection line (today view only on BPH card) === */
+  .kpi-pace {
+    margin-top: 4px;
+    font-size: 10px;
+    color: var(--muted-2);
+    font-style: italic;
+  }
+  .kpi-pace.on-track  { color: var(--green); font-style: normal; font-weight: 500; }
+  .kpi-pace.off-track { color: var(--red);   font-style: normal; font-weight: 500; }
+
   /* Charts */
   .chart-row {
     display: grid;
@@ -1859,31 +1894,47 @@
 
 <div class="kpi-strip">
   <div class="kpi-card">
-    <div class="kpi-head"><span class="kpi-label" id="s-repairs-label">Total Repairs</span></div>
+    <div class="kpi-head">
+      <span class="kpi-label" id="s-repairs-label">Total Repairs</span>
+      <span class="kpi-delta" id="s-repairs-delta"></span>
+    </div>
     <div class="kpi-value" id="s-repairs">—</div>
     <div class="kpi-progress-track"><div class="kpi-progress-fill" id="s-pct-bar" style="width: 0%;"></div></div>
     <div class="kpi-sub" id="s-pct-sub">—</div>
   </div>
   <div class="kpi-card">
-    <div class="kpi-head"><span class="kpi-label">Boards per Hour</span></div>
+    <div class="kpi-head">
+      <span class="kpi-label">Boards per Hour</span>
+      <span class="kpi-delta" id="s-bph-delta"></span>
+    </div>
     <div class="kpi-value" id="s-bph">—</div>
     <div class="kpi-progress-track"><div class="kpi-progress-fill" id="s-bph-bar" style="width: 0%;"></div></div>
     <div class="kpi-sub" id="s-bph-sub">—</div>
+    <div class="kpi-pace" id="s-bph-pace"></div>
   </div>
   <div class="kpi-card">
-    <div class="kpi-head"><span class="kpi-label" id="s-touches-label">Total Touches</span></div>
+    <div class="kpi-head">
+      <span class="kpi-label" id="s-touches-label">Total Touches</span>
+      <span class="kpi-delta" id="s-touches-delta"></span>
+    </div>
     <div class="kpi-value" id="s-touches">—</div>
     <div class="kpi-progress-track"><div class="kpi-progress-fill" style="width: 100%; background: rgba(255,255,255,0.2);"></div></div>
     <div class="kpi-sub" id="s-touches-sub">All lab activity</div>
   </div>
   <div class="kpi-card">
-    <div class="kpi-head"><span class="kpi-label" id="s-unique-label">Unique Touches</span></div>
+    <div class="kpi-head">
+      <span class="kpi-label" id="s-unique-label">Unique Touches</span>
+      <span class="kpi-delta" id="s-unique-delta"></span>
+    </div>
     <div class="kpi-value" id="s-unique">—</div>
     <div class="kpi-progress-track"><div class="kpi-progress-fill" id="s-unique-bar" style="width: 0%; background: rgba(255,255,255,0.35);"></div></div>
     <div class="kpi-sub" id="s-unique-sub">—</div>
   </div>
   <div class="kpi-card">
-    <div class="kpi-head"><span class="kpi-label">Kickbacks</span></div>
+    <div class="kpi-head">
+      <span class="kpi-label">Kickbacks</span>
+      <span class="kpi-delta inverse" id="s-kickbacks-delta"></span>
+    </div>
     <div class="kpi-value" id="s-kickbacks">—</div>
     <div class="kpi-progress-track"><div class="kpi-progress-fill" id="s-kickback-bar" style="width: 0%;"></div></div>
     <div class="kpi-sub" id="s-kickback-sub">—</div>
@@ -2598,6 +2649,92 @@
     return n.toFixed(1);
   }
 
+  // === KPI delta helpers ===
+  // priorPeriodLabel maps the current range to a human phrase for the
+  // delta pill ("vs yesterday", "vs last week", etc.). Returns null when
+  // the range has no comparable prior period ('all', or custom).
+  function priorPeriodLabel() {
+    switch (currentRange) {
+      case 'today':   return 'yesterday';
+      case 'week':    return 'last week';
+      case 'month':   return 'last month';
+      case 'quarter': return 'last quarter';
+      case 'ytd':     return 'last year';
+      default:        return null; // 'all', 'custom'
+    }
+  }
+
+  // Render a single delta pill. `pct` is the percent change (positive = up).
+  // `isAbsolute` true means render the raw value with a sign, no '%' suffix
+  // (used for the repair-% KPI where deltas are point deltas, not relative).
+  // The pill class drives color: caller may have already set `.inverse` on
+  // the element for "down is good" metrics like kickbacks.
+  function renderKpiDelta(elementId, pct, isAbsolute) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    const had = el.classList.contains('inverse'); // preserve inverse marker
+    el.className = 'kpi-delta' + (had ? ' inverse' : '');
+    if (pct === null || pct === undefined) {
+      el.textContent = '';
+      return;
+    }
+    const label = priorPeriodLabel();
+    if (!label) { el.textContent = ''; return; }
+    const sign = pct > 0 ? '↑' : pct < 0 ? '↓' : '·';
+    const cls = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat';
+    el.classList.add(cls);
+    const valStr = isAbsolute
+      ? (pct > 0 ? '+' : '') + pct + ' pts'
+      : Math.abs(pct) + '%';
+    el.textContent = sign + ' ' + valStr;
+    el.title = (pct > 0 ? 'Up' : pct < 0 ? 'Down' : 'Flat') + ' vs ' + label;
+  }
+
+  function renderLabDeltas(deltas) {
+    if (!deltas) {
+      // No prior period — clear every pill.
+      ['s-repairs-delta','s-bph-delta','s-touches-delta','s-unique-delta','s-kickbacks-delta']
+        .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = ''; });
+      return;
+    }
+    renderKpiDelta('s-repairs-delta',  deltas.repairs);
+    renderKpiDelta('s-bph-delta',      deltas.bph);
+    renderKpiDelta('s-touches-delta',  deltas.touches);
+    renderKpiDelta('s-unique-delta',   deltas.unique);
+    renderKpiDelta('s-kickbacks-delta', deltas.kickbacks); // inverse class set in HTML
+  }
+
+  // === BPH pace projection ===
+  // Today-view only. Projects EOD board count from live BPH × hours remaining
+  // in the working day, with the active tech count baked into the BPH already
+  // (BPH is repairs ÷ tech-hours, so projected_repairs = bph × remaining_hours
+  // × active_techs). Shop day is treated as 8 working hours ending at 18:00
+  // local time — adjust if shifts differ.
+  function renderBphPace(lab) {
+    const el = document.getElementById('s-bph-pace');
+    if (!el) return;
+    if (currentRange !== 'today' || !lab || !lab.bph || lab.bph <= 0) {
+      el.textContent = '';
+      el.className = 'kpi-pace';
+      return;
+    }
+    // Hours remaining in the working day (cap at 0 once past EOD).
+    const now = new Date();
+    const eod = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 0, 0, 0);
+    const msRemaining = Math.max(0, eod - now);
+    const hoursRemaining = msRemaining / (1000 * 60 * 60);
+    // techDays today = active techs working today (one row per tech-day).
+    const activeTechs = lab.techDays || 0;
+    if (activeTechs <= 0 || hoursRemaining <= 0) {
+      el.textContent = '';
+      el.className = 'kpi-pace';
+      return;
+    }
+    const projected = Math.round(lab.repairs + (lab.bph * hoursRemaining * activeTechs));
+    el.textContent = 'Projecting ' + projected.toLocaleString() + ' boards by EOD';
+    el.className = 'kpi-pace';
+  }
+
   function renderTrendChart(trend, isPerTech) {
     const ctx = document.getElementById('trendChart');
     if (trendChart) trendChart.destroy();
@@ -3189,6 +3326,12 @@
   function renderTechFiltered(tech) {
     const lab = currentData.summary;
 
+    // Single-tech detail mode doesn't have per-tech prior-period data
+    // (the worker doesn't compute it per tech), so clear any KPI delta pills
+    // and pace projection that may be left from a previous Overview render.
+    renderLabDeltas(null);
+    renderBphPace(null);
+
     // KPI strip — switch labels and values to the tech's data
     document.getElementById("s-repairs-label").textContent = "Repairs";
     document.getElementById("s-touches-label").textContent = "Touches";
@@ -3318,7 +3461,13 @@
     const uniquePct = lab.touches > 0 ? Math.round((lab.unique / lab.touches) * 100) : 0;
     const uniqueBar = document.getElementById("s-unique-bar");
     if (uniqueBar) uniqueBar.style.width = uniquePct + "%";
-    document.getElementById("s-unique-sub").textContent = uniquePct + "% of total touches";
+    // Sub-line names the rework count + rate directly instead of making readers
+    // infer it from "85% unique". Rework = touches that weren't on a new serial.
+    const reworkCount = Math.max(0, lab.touches - lab.unique);
+    const reworkPct = lab.touches > 0 ? Math.round((reworkCount / lab.touches) * 100) : 0;
+    document.getElementById("s-unique-sub").textContent =
+      reworkCount.toLocaleString() + " rework touch" + (reworkCount === 1 ? "" : "es") +
+      " · " + reworkPct + "%";
 
     const kickbacks = lab.kickbacks || 0;
     const kbRate = lab.kickbackRate || 0;
@@ -3350,6 +3499,18 @@
     } else {
       outBar.innerHTML = '';
     }
+
+    // === KPI deltas (vs prior period) ===
+    // Worker provides lab.deltas for preset ranges. Custom and 'all' are null;
+    // in those cases renderKpiDelta(...) clears the pill instead of showing
+    // a stale value. priorLabel maps the range to human text shown alongside.
+    renderLabDeltas(lab.deltas);
+
+    // === BPH pace projection (today-view only) ===
+    // Project EOD board count from the live BPH × hours remaining in the
+    // working day × active techs. Helps the floor see "are we tracking" at
+    // a glance. Hidden on any non-today range since the math wouldn't apply.
+    renderBphPace(lab);
 
     document.getElementById("teamsChartMeta").textContent = "Sorted by Repair %";
     document.getElementById("scatterChartMeta").textContent = "Each dot = one tech";

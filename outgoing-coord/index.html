@@ -146,6 +146,44 @@
     margin-left: auto;
   }
 
+  /* Multi-select Model/Order + single-select Coordinator filter dropdowns */
+  .mo-filter-wrap { position: relative; display: inline-block; }
+  .mo-filter-btn { display: inline-flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text-2); padding: 7px 12px; font-size: 12px; font-family: inherit; cursor: pointer; font-weight: 500; transition: all 0.15s; }
+  .mo-filter-btn:hover { border-color: var(--border-strong); }
+  .mo-filter-btn.active { background: rgba(224,122,26,0.12); border-color: rgba(224,122,26,0.4); color: var(--brand); }
+  .mo-filter-prefix { color: var(--muted-2); }
+  .mo-filter-btn.active .mo-filter-prefix { color: var(--brand); }
+  .mo-caret { font-size: 9px; color: var(--muted-2); }
+  .mo-panel { display: none; position: absolute; top: calc(100% + 6px); right: 0; z-index: 50; width: 240px; max-height: 320px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); flex-direction: column; overflow: hidden; }
+  .mo-panel.open { display: flex; }
+  .mo-search { padding: 8px; border-bottom: 1px solid var(--border); }
+  .mo-search input { width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 6px 10px; font-family: inherit; font-size: 12px; }
+  .mo-search input:focus { outline: none; border-color: var(--brand); }
+  .mo-list { overflow-y: auto; padding: 4px; }
+  .mo-list::-webkit-scrollbar { width: 6px; }
+  .mo-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .mo-option { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; font-size: 12px; color: var(--text-2); border-radius: 5px; cursor: pointer; }
+  .mo-option:hover { background: var(--surface-2); }
+  .mo-option.selected { background: rgba(224,122,26,0.1); color: var(--brand); }
+  .mo-option .chk { color: var(--brand); font-size: 11px; }
+  .mo-all { border-bottom: 1px solid var(--border); margin-bottom: 4px; font-weight: 600; }
+  .mo-empty { padding: 12px; text-align: center; color: var(--muted-2); font-size: 12px; }
+
+  /* Coordinator detail-view banner + mode hiding */
+  .coord-detail-banner { display: none; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding: 14px 18px; background: rgba(224,122,26,0.1); border: 1px solid rgba(224,122,26,0.35); border-radius: 10px; }
+  body.coord-detail .coord-detail-banner { display: flex; }
+  .cdb-left { display: flex; align-items: baseline; gap: 10px; }
+  .cdb-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+  .cdb-name { font-size: 20px; font-weight: 600; color: var(--brand); letter-spacing: -0.3px; }
+  .cdb-clear { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; color: var(--text-2); padding: 7px 14px; font-size: 12px; font-family: inherit; cursor: pointer; font-weight: 500; transition: all 0.15s; }
+  .cdb-clear:hover { border-color: var(--border-strong); background: #222226; }
+  body.coord-detail #leadersCard,
+  body.coord-detail #breakdownDivider,
+  body.coord-detail #tableWrap,
+  body.coord-detail #kickbackDivider,
+  body.coord-detail #kickbackRow { display: none; }
+  body.coord-detail #trendLeadersRow { grid-template-columns: 1fr; }
+
   .shift-group { display: flex; align-items: center; gap: 8px; }
   .shift-bar { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 3px; gap: 2px; }
   .shift-btn { background: transparent; border: none; color: var(--muted); padding: 6px 14px; font-size: 12px; font-family: inherit; border-radius: 5px; cursor: pointer; transition: all 0.15s; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
@@ -273,6 +311,33 @@
       <button class="shift-btn" data-shift="day" onclick="setShift('day')"><span class="dot"></span>Day</button>
       <button class="shift-btn" data-shift="night" onclick="setShift('night')"><span class="dot"></span>Night</button>
     </div>
+    <div class="mo-filter-wrap">
+      <button class="mo-filter-btn" id="modelFilterBtn" onclick="toggleModelFilter(event)">
+        <span class="mo-filter-prefix">Model:</span><span id="modelFilterLabel">All</span><span class="mo-caret">▼</span>
+      </button>
+      <div class="mo-panel" id="modelFilterPanel">
+        <div class="mo-search"><input type="text" id="modelFilterSearch" placeholder="Search models..." oninput="renderModelFilterList()" onclick="event.stopPropagation()"></div>
+        <div class="mo-list" id="modelFilterList"></div>
+      </div>
+    </div>
+    <div class="mo-filter-wrap">
+      <button class="mo-filter-btn" id="orderFilterBtn" onclick="toggleOrderFilter(event)">
+        <span class="mo-filter-prefix">Order:</span><span id="orderFilterLabel">All</span><span class="mo-caret">▼</span>
+      </button>
+      <div class="mo-panel" id="orderFilterPanel">
+        <div class="mo-search"><input type="text" id="orderFilterSearch" placeholder="Search orders..." oninput="renderOrderFilterList()" onclick="event.stopPropagation()"></div>
+        <div class="mo-list" id="orderFilterList"></div>
+      </div>
+    </div>
+    <div class="mo-filter-wrap">
+      <button class="mo-filter-btn" id="coordFilterBtn" onclick="toggleCoordFilter(event)">
+        <span class="mo-filter-prefix">Coordinator:</span><span id="coordFilterLabel">All</span><span class="mo-caret">▼</span>
+      </button>
+      <div class="mo-panel" id="coordFilterPanel">
+        <div class="mo-search"><input type="text" id="coordFilterSearch" placeholder="Search coordinators..." oninput="renderCoordFilterList()" onclick="event.stopPropagation()"></div>
+        <div class="mo-list" id="coordFilterList"></div>
+      </div>
+    </div>
     <span class="last-updated" id="lastUpdated">Connecting...</span>
   </div>
 </div>
@@ -291,6 +356,14 @@
     <button onclick="customQuickPick('lastmonth')">Last month</button>
   </span>
   <span class="custom-error" id="customError"></span>
+</div>
+
+<div class="coord-detail-banner" id="coordDetailBanner">
+  <div class="cdb-left">
+    <span class="cdb-label">Viewing coordinator</span>
+    <span class="cdb-name" id="cdbName">—</span>
+  </div>
+  <button class="cdb-clear" onclick="clearCoordFilter()">← Back to all coordinators</button>
 </div>
 
 <div class="kpi-strip">
@@ -351,7 +424,7 @@
   </div>
 </div>
 
-<div class="chart-row">
+<div class="chart-row" id="trendLeadersRow">
   <div class="chart-card">
     <div class="chart-head">
       <div class="chart-title">Daily Trend</div>
@@ -359,7 +432,7 @@
     </div>
     <div class="chart-canvas-wrap"><canvas id="trendChart"></canvas></div>
   </div>
-  <div class="chart-card">
+  <div class="chart-card" id="leadersCard">
     <div class="chart-head">
       <div class="chart-title">Top 10 Coordinators</div>
       <span class="chart-meta">By boards</span>
@@ -393,7 +466,7 @@
   <div class="chart-canvas-wrap"><canvas id="hourlyChart"></canvas></div>
 </div>
 
-<div class="section-divider">
+<div class="section-divider" id="breakdownDivider">
   <div class="section-title">Coordinator Breakdown</div>
   <div class="section-meta" id="tableMeta">—</div>
 </div>
@@ -403,7 +476,7 @@
 </div>
 
 <!-- === KICKBACK SECTION === -->
-<div class="section-divider kickback-section">
+<div class="section-divider kickback-section" id="kickbackDivider">
   <div>
     <span class="section-title">Lab Tech Kickbacks</span>
     <span class="section-note">Failed repairs sent back to the lab — kickbacks are bad for the lab tech named</span>
@@ -411,7 +484,7 @@
   <div class="section-meta" id="kickbackMeta">—</div>
 </div>
 
-<div class="kickback-row">
+<div class="kickback-row" id="kickbackRow">
   <div class="chart-card">
     <div class="chart-head">
       <div class="chart-title">Kickbacks Leaderboard</div>
@@ -449,13 +522,19 @@
 
   let currentData = null;
   let currentRange = "today", currentShift = "all";
-  // Custom date range state. When currentRange === 'custom', these hold the
-  // YYYY-MM-DD strings being applied; otherwise they're null.
   let customFrom = null, customTo = null;
   let trendChart = null, leadersChart = null, modelsChart = null, errorsChart = null, hourlyChart = null;
   let kickbackTrendChart = null;
   let sortKey = "units", sortDir = "desc";
   let browseMode = false, refreshTimer = null;
+
+  // Filter state
+  let selectedModels = new Set();
+  let selectedOrders = new Set();
+  let availableModels = [];
+  let availableOrders = [];
+  let selectedCoordinator = null;
+  let availableCoordinators = [];
 
   const COLORS = {
     text: '#FAFAFB', text2: '#ECECEE', muted: '#9A9AA1', muted2: '#6E6E76',
@@ -486,7 +565,6 @@
     const panel = document.getElementById("customRow");
     if (panel.classList.contains("open")) {
       closeCustomPanel();
-      // Restore active highlight on whichever preset is the real current range
       if (currentRange !== 'custom') {
         document.querySelectorAll(".filter-btn").forEach(b => {
           b.classList.toggle("active", b.dataset.range === currentRange);
@@ -604,13 +682,17 @@
 
   function buildFetchUrl() {
     const cacheBust = "&t=" + Date.now();
+    const modelsParam = "&models=" + encodeURIComponent([...selectedModels].join(","));
+    const ordersParam = "&orders=" + encodeURIComponent([...selectedOrders].join(","));
+    const coordParam = "&coordinator=" + encodeURIComponent(selectedCoordinator || "");
     if (currentRange === 'custom' && customFrom && customTo) {
       return WORKER_URL + "?type=outgoing" +
         "&from=" + encodeURIComponent(customFrom) +
         "&to=" + encodeURIComponent(customTo) +
-        cacheBust;
+        modelsParam + ordersParam + coordParam + cacheBust;
     }
-    return WORKER_URL + "?type=outgoing&range=" + encodeURIComponent(currentRange) + cacheBust;
+    return WORKER_URL + "?type=outgoing&range=" + encodeURIComponent(currentRange) +
+      modelsParam + ordersParam + coordParam + cacheBust;
   }
 
   async function fetchData() {
@@ -619,6 +701,13 @@
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       currentData = json;
+      if (json.filters) {
+        if (Array.isArray(json.filters.allModels)) availableModels = json.filters.allModels;
+        if (Array.isArray(json.filters.allOrders)) availableOrders = json.filters.allOrders;
+        if (Array.isArray(json.filters.allCoordinators)) availableCoordinators = json.filters.allCoordinators;
+      }
+      updateModelOrderButtons();
+      updateCoordinatorButton();
       renderAll();
       const updateLabel = (currentRange === 'custom' && customFrom && customTo)
         ? "Showing " + customFrom + " → " + customTo
@@ -629,15 +718,129 @@
     }
   }
 
+  // ===== Model / Order multi-select filters =====
+  function toggleModelFilter(event) {
+    if (event) event.stopPropagation();
+    const p = document.getElementById("modelFilterPanel");
+    closeOrderFilter(); closeCoordFilter();
+    if (p.classList.contains("open")) closeModelFilter();
+    else { p.classList.add("open"); renderModelFilterList(); }
+  }
+  function closeModelFilter() { document.getElementById("modelFilterPanel").classList.remove("open"); }
+  function toggleOrderFilter(event) {
+    if (event) event.stopPropagation();
+    const p = document.getElementById("orderFilterPanel");
+    closeModelFilter(); closeCoordFilter();
+    if (p.classList.contains("open")) closeOrderFilter();
+    else { p.classList.add("open"); renderOrderFilterList(); }
+  }
+  function closeOrderFilter() { document.getElementById("orderFilterPanel").classList.remove("open"); }
+
+  function renderValueFilterList(listElId, values, selectedSet, searchElId, toggleFn, clearFn) {
+    const q = (document.getElementById(searchElId).value || "").toLowerCase().trim();
+    const matching = values.filter(v => !q || v.toLowerCase().includes(q));
+    let html = '<div class="mo-option mo-all' + (selectedSet.size === 0 ? ' selected' : '') +
+               '" onclick="' + clearFn + '(); event.stopPropagation();">All</div>';
+    if (matching.length === 0) {
+      html += '<div class="mo-empty">No matches</div>';
+    } else {
+      matching.forEach(v => {
+        const sel = selectedSet.has(v);
+        html += '<div class="mo-option' + (sel ? ' selected' : '') + '" onclick="' + toggleFn +
+                '(' + JSON.stringify(v).replace(/"/g, '&quot;') + '); event.stopPropagation();">' +
+                '<span>' + esc(v) + '</span>' + (sel ? '<span class="chk">✓</span>' : '') + '</div>';
+      });
+    }
+    document.getElementById(listElId).innerHTML = html;
+  }
+  function renderModelFilterList() { renderValueFilterList("modelFilterList", availableModels, selectedModels, "modelFilterSearch", "toggleModelValue", "clearModelFilter"); }
+  function renderOrderFilterList() { renderValueFilterList("orderFilterList", availableOrders, selectedOrders, "orderFilterSearch", "toggleOrderValue", "clearOrderFilter"); }
+
+  function toggleModelValue(v) { selectedModels.has(v) ? selectedModels.delete(v) : selectedModels.add(v); updateModelOrderButtons(); renderModelFilterList(); fetchData(); }
+  function toggleOrderValue(v) { selectedOrders.has(v) ? selectedOrders.delete(v) : selectedOrders.add(v); updateModelOrderButtons(); renderOrderFilterList(); fetchData(); }
+  function clearModelFilter() { if (selectedModels.size === 0) return; selectedModels.clear(); updateModelOrderButtons(); renderModelFilterList(); fetchData(); }
+  function clearOrderFilter() { if (selectedOrders.size === 0) return; selectedOrders.clear(); updateModelOrderButtons(); renderOrderFilterList(); fetchData(); }
+
+  function updateModelOrderButtons() {
+    const mBtn = document.getElementById("modelFilterBtn"), mLabel = document.getElementById("modelFilterLabel");
+    if (mBtn && mLabel) {
+      if (selectedModels.size === 0) { mBtn.classList.remove("active"); mLabel.textContent = "All"; }
+      else if (selectedModels.size === 1) { mBtn.classList.add("active"); mLabel.textContent = [...selectedModels][0]; }
+      else { mBtn.classList.add("active"); mLabel.textContent = selectedModels.size + " selected"; }
+    }
+    const oBtn = document.getElementById("orderFilterBtn"), oLabel = document.getElementById("orderFilterLabel");
+    if (oBtn && oLabel) {
+      if (selectedOrders.size === 0) { oBtn.classList.remove("active"); oLabel.textContent = "All"; }
+      else if (selectedOrders.size === 1) { oBtn.classList.add("active"); oLabel.textContent = [...selectedOrders][0]; }
+      else { oBtn.classList.add("active"); oLabel.textContent = selectedOrders.size + " selected"; }
+    }
+  }
+
+  // ===== Coordinator single-select detail filter =====
+  function toggleCoordFilter(event) {
+    if (event) event.stopPropagation();
+    const p = document.getElementById("coordFilterPanel");
+    closeModelFilter(); closeOrderFilter();
+    if (p.classList.contains("open")) closeCoordFilter();
+    else { p.classList.add("open"); renderCoordFilterList(); }
+  }
+  function closeCoordFilter() { document.getElementById("coordFilterPanel").classList.remove("open"); }
+
+  function renderCoordFilterList() {
+    const q = (document.getElementById("coordFilterSearch").value || "").toLowerCase().trim();
+    const matching = availableCoordinators.filter(v => !q || v.toLowerCase().includes(q));
+    let html = '<div class="mo-option mo-all' + (selectedCoordinator === null ? ' selected' : '') +
+               '" onclick="clearCoordFilter(); event.stopPropagation();">All coordinators</div>';
+    if (matching.length === 0) {
+      html += '<div class="mo-empty">No matches</div>';
+    } else {
+      matching.forEach(v => {
+        const sel = selectedCoordinator === v;
+        html += '<div class="mo-option' + (sel ? ' selected' : '') + '" onclick="selectCoordinator(' +
+                JSON.stringify(v).replace(/"/g, '&quot;') + '); event.stopPropagation();">' +
+                '<span>' + esc(v) + '</span>' + (sel ? '<span class="chk">✓</span>' : '') + '</div>';
+      });
+    }
+    document.getElementById("coordFilterList").innerHTML = html;
+  }
+  function selectCoordinator(name) {
+    selectedCoordinator = name;
+    closeCoordFilter();
+    updateCoordinatorButton();
+    fetchData();
+  }
+  function clearCoordFilter() {
+    if (selectedCoordinator === null) return;
+    selectedCoordinator = null;
+    updateCoordinatorButton();
+    fetchData();
+  }
+  function updateCoordinatorButton() {
+    const btn = document.getElementById("coordFilterBtn"), label = document.getElementById("coordFilterLabel");
+    if (btn && label) {
+      if (selectedCoordinator) { btn.classList.add("active"); label.textContent = selectedCoordinator; }
+      else { btn.classList.remove("active"); label.textContent = "All"; }
+    }
+    if (selectedCoordinator) {
+      document.body.classList.add("coord-detail");
+      const nm = document.getElementById("cdbName");
+      if (nm) nm.textContent = selectedCoordinator;
+    } else {
+      document.body.classList.remove("coord-detail");
+    }
+  }
+
+  document.addEventListener("click", function(e) {
+    const inFilter = e.target.closest && e.target.closest(".mo-filter-wrap");
+    if (!inFilter) { closeModelFilter(); closeOrderFilter(); closeCoordFilter(); }
+  });
+
   function fmtBPH(v) { return Number(v).toFixed(2); }
   function bphClass(bph) {
     if (bph >= 8) return "green";
     if (bph >= 4) return "orange";
     return "red";
   }
-  // Kickback rate color: lower is better (green <10%, orange 10-25%, red >25%).
-  // Same thresholds as the lab dashboard's tech-level kickback color so the
-  // visual language is consistent across dashboards.
   function kbRateClass(rate, kickbacks) {
     if (kickbacks === 0) return "green";
     if (rate < 10) return "green";
@@ -718,12 +921,8 @@
 
   function renderLeadersChart(leaders) {
     const labels = leaders.map(t => t.name);
-    // Each coord's bar = total boards, stacked as Passed (boards - kickbacks) + Kickback.
-    // Bar length still = total boards (same as before), but the red kickback
-    // segment makes problem coords visible at a glance.
     const passedData = leaders.map(t => Math.max(0, t.units - (t.kickbacks || 0)));
     const kickbackData = leaders.map(t => t.kickbacks || 0);
-    // Pre-compute kickback rate per coord (used in the tooltip)
     const ratePct = leaders.map(t => {
       const kb = t.kickbacks || 0;
       return t.units > 0 ? (kb / t.units) * 100 : 0;
@@ -760,23 +959,16 @@
         plugins: {
           legend: { display: false },
           tooltip: {
-            // Single combined tooltip — when you hover anywhere on the bar,
-            // show all stats (total, passed, kickback count + rate) at once
-            // instead of separate tooltips per segment.
-            mode: 'y',          // group all bars at the same y-axis position
-            intersect: false,   // trigger anywhere along the bar's row
+            mode: 'y',
+            intersect: false,
             backgroundColor: '#1A1A1D', borderColor: '#27272B', borderWidth: 1,
             titleColor: COLORS.text, bodyColor: COLORS.text2, padding: 10,
             callbacks: {
-              // Use the first item's index as the row ref. Since both Passed
-              // and Kickback datasets share the same labels, items[0] is fine.
               title: function(items) {
                 return items.length ? labels[items[0].dataIndex] : '';
               },
-              // Replace the default per-segment label with a single combined
-              // body. We only emit lines on the first item so we don't repeat.
               label: function(c) {
-                if (c.datasetIndex !== 0) return null; // skip kickback dataset's row
+                if (c.datasetIndex !== 0) return null;
                 const i = c.dataIndex;
                 const passed = passedData[i];
                 const kb = kickbackData[i];
@@ -839,21 +1031,17 @@
   }
 
   function renderErrorsChart(errorTypes) {
-    // Color by error category — keys are lowercased so casing variations
-    // (e.g. "ASIC Error" vs "Asic Error") all hit the same color.
     const errorColors = {
       'asic error':   COLORS.red,
-      'false asic':   '#3b82f6',  // blue
+      'false asic':   '#3b82f6',
       'ts':           COLORS.orange,
-      'graveyard':    '#f15d25',  // dark orange
-      'give up':      '#f68b20',  // amber-orange
+      'graveyard':    '#f15d25',
+      'give up':      '#f68b20',
       'repaired':     COLORS.green,
-      'visual':       '#06b6d4',  // cyan
-      'corrosion':    '#14b8a6',  // teal
+      'visual':       '#06b6d4',
+      'corrosion':    '#14b8a6',
       'unknown':      COLORS.muted
     };
-    // Fallback palette for any error type not in the map above —
-    // each unknown type gets a different color (not all purple).
     const fallbackPalette = [
       COLORS.purple, '#ec4899', '#a855f7', '#10b981',
       '#f59e0b', '#84cc16', '#0ea5e9', '#d946ef'
@@ -898,7 +1086,6 @@
       const display = h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p';
       labels.push(display);
     }
-    // Color by shift heuristic: 7am-7pm = day color, else night color
     const colors = labels.map((_, h) => (h >= 7 && h < 19) ? COLORS.day : COLORS.night);
 
     const ctx = document.getElementById('hourlyChart');
@@ -909,7 +1096,7 @@
         labels,
         datasets: [{
           label: 'Boards', data: hourlyAvg,
-          backgroundColor: colors.map(c => c + 'B0'), // semi-transparent
+          backgroundColor: colors.map(c => c + 'B0'),
           borderColor: 'transparent', borderWidth: 0, borderRadius: 4
         }]
       },
@@ -972,7 +1159,6 @@
   }
 
   function renderKickbackPanel(kb) {
-    // kb shape: { total, rate, leaderboard: [{name, count}], trend: {labels, counts} }
     const meta = document.getElementById("kickbackMeta");
     const totalEl = document.getElementById("kb-total");
     const totalSubEl = document.getElementById("kb-total-sub");
@@ -997,7 +1183,6 @@
       ? "No kickbacks"
       : techCount + " lab tech" + (techCount === 1 ? "" : "s") + " with kickbacks";
 
-    // Leaderboard (highest count first — already sorted by Worker)
     if (kb.leaderboard.length === 0) {
       board.innerHTML = '<div class="kb-empty">No kickbacks in this time range.</div>';
     } else {
@@ -1016,7 +1201,6 @@
       board.innerHTML = html;
     }
 
-    // Trend chart
     renderKickbackTrendChart(kb.trend || { labels: [], counts: [] });
   }
 
@@ -1057,7 +1241,6 @@
     const bodyHTML = sorted.map(c => {
       const pillCls = c.primary.toLowerCase();
       const bCls = bphClass(c.bph);
-      // Kickback cell: muted "0" if none, else "<count> · <rate>%" colored by rate
       const cKickbacks = c.kickbacks || 0;
       const cKbRate = c.kickbackRate || 0;
       const cKbCls = kbRateClass(cKbRate, cKickbacks);
@@ -1092,12 +1275,10 @@
     if (!slice) return;
     const summary = slice.summary;
 
-    // Total Boards Out + delta
     document.getElementById("s-units").textContent = summary.units.toLocaleString();
     document.getElementById("s-units-sub").textContent =
       summary.coordDays + " coordinator-day" + (summary.coordDays === 1 ? "" : "s") + " logged";
 
-    // Average boards per coordinator-day with rolling avg comparison
     if (summary.avgPerCoordDay !== undefined) {
       let avgText = '<span class="kpi-sub-strong">' + summary.avgPerCoordDay + '</span> avg boards/coord/day';
       if (summary.rollingAvg && summary.rollingAvg > 0) {
@@ -1108,11 +1289,9 @@
       document.getElementById("s-avg-sub").textContent = '';
     }
 
-    // Total Boards delta
     const deltas = summary.deltas || {};
     renderDelta("s-units-delta", deltas.units);
 
-    // BPH split
     document.getElementById("s-bph-day").textContent = fmtBPH(summary.dayBph);
     document.getElementById("s-bph-night").textContent = fmtBPH(summary.nightBph);
     let bphSub = "Combined " + fmtBPH(summary.bph) + " · " + HOURS_PER_DAY + " hrs/day";
@@ -1129,7 +1308,6 @@
     }
     document.getElementById("s-bph-sub").textContent = bphSub;
 
-    // BPH delta sub-line
     const priorLabel = priorPeriodLabel();
     if (priorLabel && deltas.bph !== null && deltas.bph !== undefined) {
       const sign = deltas.bph > 0 ? '↑' : deltas.bph < 0 ? '↓' : '·';
@@ -1140,14 +1318,12 @@
       document.getElementById("s-bph-delta-sub").textContent = '';
     }
 
-    // Active Coordinators
     document.getElementById("s-coords-day").textContent = summary.dayCoords.toLocaleString();
     document.getElementById("s-coords-night").textContent = summary.nightCoords.toLocaleString();
     document.getElementById("s-coords-sub").textContent = summary.coords > 0
       ? summary.coords + " total · " + Math.round(summary.units / summary.coords).toLocaleString() + " avg boards/coord"
       : "—";
 
-    // Day vs Night
     document.getElementById("s-day").textContent = summary.day.toLocaleString();
     document.getElementById("s-night").textContent = summary.night.toLocaleString();
     const total = summary.day + summary.night;
@@ -1161,32 +1337,34 @@
       sb.innerHTML = '';
     }
 
-    // Trend meta updates with range
     const trendMeta = document.getElementById("trend-meta");
     const trendLabels = {
       today: 'Last 14 days', week: 'Last 14 days', month: 'Last 14 days',
       quarter: 'Last 13 weeks', ytd: 'Last 12 months', all: 'Last 12 months'
     };
-    if (trendMeta) trendMeta.textContent = trendLabels[currentRange] || 'Trend';
+    if (trendMeta) {
+      trendMeta.textContent = currentRange === 'custom'
+        ? (customFrom + ' → ' + customTo)
+        : (trendLabels[currentRange] || 'Trend');
+    }
 
-    // Hourly meta
     const hourlyMeta = document.getElementById("hourly-meta");
     if (hourlyMeta) {
       hourlyMeta.textContent = currentRange === 'today' ? 'Boards by hour today' : 'Avg boards per hour';
     }
 
-    // Charts
     renderTrendChart(slice.trend);
-    renderLeadersChart(slice.leaders);
+    if (!selectedCoordinator) {
+      renderLeadersChart(slice.leaders);
+    }
     renderModelsChart(slice.models);
     renderErrorsChart(slice.errorTypes || []);
     renderHourlyChart(slice.hourlyAvg || new Array(24).fill(0));
 
-    // Table
-    renderTable(slice.coordStats);
-
-    // Kickback panel — same data on every shift slice (kickbacks don't filter by shift)
-    renderKickbackPanel(slice.kickbacks);
+    if (!selectedCoordinator) {
+      renderTable(slice.coordStats);
+      renderKickbackPanel(slice.kickbacks);
+    }
   }
 
   function esc(str) {

@@ -1781,6 +1781,36 @@
   </div>
   <div class="filter-row-right">
     <div class="tech-filter-wrap">
+      <button class="tech-filter-btn" id="modelFilterBtn" onclick="toggleModelFilter(event)">
+        <span class="tech-filter-btn-label">
+          <span class="tech-filter-btn-prefix">Model:</span>
+          <span id="modelFilterLabel">All models</span>
+        </span>
+        <span class="tech-filter-caret">▼</span>
+      </button>
+      <div class="tech-filter-panel" id="modelFilterPanel">
+        <div class="tech-filter-search">
+          <input type="text" id="modelFilterSearch" placeholder="Search models..." oninput="renderModelFilterList()" onclick="event.stopPropagation()">
+        </div>
+        <div class="tech-filter-list" id="modelFilterList"></div>
+      </div>
+    </div>
+    <div class="tech-filter-wrap">
+      <button class="tech-filter-btn" id="orderFilterBtn" onclick="toggleOrderFilter(event)">
+        <span class="tech-filter-btn-label">
+          <span class="tech-filter-btn-prefix">Order:</span>
+          <span id="orderFilterLabel">All orders</span>
+        </span>
+        <span class="tech-filter-caret">▼</span>
+      </button>
+      <div class="tech-filter-panel" id="orderFilterPanel">
+        <div class="tech-filter-search">
+          <input type="text" id="orderFilterSearch" placeholder="Search orders..." oninput="renderOrderFilterList()" onclick="event.stopPropagation()">
+        </div>
+        <div class="tech-filter-list" id="orderFilterList"></div>
+      </div>
+    </div>
+    <div class="tech-filter-wrap">
       <button class="tech-filter-btn" id="techFilterBtn" onclick="toggleTechFilter(event)">
         <span class="tech-filter-btn-label">
           <span class="tech-filter-btn-prefix">Person:</span>
@@ -1943,6 +1973,18 @@
   // is parsed at page load.
   let selectedTechName = null;
 
+  // Model / Order filter state. These are multi-select (Sets of values to
+  // KEEP). Empty set = no filter on that dimension. When either is non-empty
+  // the dashboard re-fetches from the worker with &models=/&orders= so the
+  // server recomputes all aggregates over the filtered rows. The full list of
+  // available values comes back in currentData.filters.allModels/allOrders.
+  let selectedModels = new Set();
+  let selectedOrders = new Set();
+  let availableModels = [];   // populated from worker response
+  let availableOrders = [];   // populated from worker response
+  let modelOrderSearchModel = "";  // search box text for model panel
+  let modelOrderSearchOrder = "";  // search box text for order panel
+
   const COLORS = {
     text: '#FAFAFB', text2: '#ECECEE', muted: '#9A9AA1', muted2: '#6E6E76',
     grid: 'rgba(255,255,255,0.04)', gridStrong: 'rgba(255,255,255,0.08)',
@@ -1971,12 +2013,18 @@
         b.classList.toggle("active", b.dataset.range === range);
       });
     }
+    const models = params.get('models');
+    if (models) models.split(',').map(s => s.trim()).filter(Boolean).forEach(m => selectedModels.add(m));
+    const orders = params.get('orders');
+    if (orders) orders.split(',').map(s => s.trim()).filter(Boolean).forEach(o => selectedOrders.add(o));
   }
 
   function syncUrl() {
     const params = new URLSearchParams();
     if (currentRange !== 'today' && currentRange !== 'custom') params.set('range', currentRange);
     if (selectedTechName) params.set('tech', selectedTechName);
+    if (selectedModels.size > 0) params.set('models', [...selectedModels].join(','));
+    if (selectedOrders.size > 0) params.set('orders', [...selectedOrders].join(','));
     const qs = params.toString();
     const newUrl = window.location.pathname + (qs ? '?' + qs : '');
     window.history.replaceState({}, '', newUrl);
@@ -2190,9 +2238,13 @@
 
   // Close the dropdown when clicking outside it
   document.addEventListener("click", function(e) {
-    const wrap = document.querySelector(".tech-filter-wrap");
-    if (wrap && !wrap.contains(e.target)) {
+    const wraps = document.querySelectorAll(".tech-filter-wrap");
+    let insideAny = false;
+    wraps.forEach(w => { if (w.contains(e.target)) insideAny = true; });
+    if (!insideAny) {
       closeTechFilter();
+      closeModelFilter();
+      closeOrderFilter();
     }
   });
 
@@ -2366,18 +2418,136 @@
     }
   }
 
+  // ============ Model / Order multi-select filters ============
+  // Both work the same way: a multi-select dropdown of values. Toggling a
+  // value updates the Set and re-fetches (the worker recomputes all aggregates
+  // over the filtered rows). Empty Set = no filter.
+
+  function toggleModelFilter(event) {
+    if (event) event.stopPropagation();
+    const panel = document.getElementById("modelFilterPanel");
+    closeOrderFilter();
+    closeTechFilter && closeTechFilter();
+    if (panel.classList.contains("open")) { closeModelFilter(); }
+    else { panel.classList.add("open"); renderModelFilterList(); }
+  }
+  function openModelFilter() { document.getElementById("modelFilterPanel").classList.add("open"); renderModelFilterList(); }
+  function closeModelFilter() { document.getElementById("modelFilterPanel").classList.remove("open"); }
+
+  function toggleOrderFilter(event) {
+    if (event) event.stopPropagation();
+    const panel = document.getElementById("orderFilterPanel");
+    closeModelFilter();
+    closeTechFilter && closeTechFilter();
+    if (panel.classList.contains("open")) { closeOrderFilter(); }
+    else { panel.classList.add("open"); renderOrderFilterList(); }
+  }
+  function openOrderFilter() { document.getElementById("orderFilterPanel").classList.add("open"); renderOrderFilterList(); }
+  function closeOrderFilter() { document.getElementById("orderFilterPanel").classList.remove("open"); }
+
+  // Generic list renderer for a multi-select value filter.
+  function renderValueFilterList(listElId, values, selectedSet, search, toggleFn, clearFn) {
+    const q = (search || "").toLowerCase().trim();
+    const matching = values.filter(v => !q || v.toLowerCase().includes(q));
+    let html = "";
+    // "All" / clear row
+    const allActive = selectedSet.size === 0;
+    html += '<div class="tech-filter-all tech-filter-option' + (allActive ? ' selected' : '') +
+            '" onclick="' + clearFn + '(); event.stopPropagation();">' +
+            '<span class="tech-option-name">All</span></div>';
+    if (matching.length === 0) {
+      html += '<div class="tech-filter-empty">No matches' + (q ? ' for "' + esc(search) + '"' : '') + '</div>';
+    } else {
+      matching.forEach(v => {
+        const sel = selectedSet.has(v);
+        html += '<div class="tech-filter-option' + (sel ? ' selected' : '') +
+                '" onclick="' + toggleFn + '(' + JSON.stringify(v).replace(/"/g, '&quot;') + '); event.stopPropagation();">' +
+                '<span class="tech-option-name">' + esc(v) + '</span>' +
+                (sel ? '<span class="tech-option-level">✓</span>' : '') +
+                '</div>';
+      });
+    }
+    document.getElementById(listElId).innerHTML = html;
+  }
+
+  function renderModelFilterList() {
+    modelOrderSearchModel = document.getElementById("modelFilterSearch").value || "";
+    renderValueFilterList("modelFilterList", availableModels, selectedModels,
+      modelOrderSearchModel, "toggleModelValue", "clearModelFilter");
+  }
+  function renderOrderFilterList() {
+    modelOrderSearchOrder = document.getElementById("orderFilterSearch").value || "";
+    renderValueFilterList("orderFilterList", availableOrders, selectedOrders,
+      modelOrderSearchOrder, "toggleOrderValue", "clearOrderFilter");
+  }
+
+  function toggleModelValue(v) {
+    if (selectedModels.has(v)) selectedModels.delete(v); else selectedModels.add(v);
+    updateModelOrderButtons();
+    renderModelFilterList();
+    syncUrl();
+    fetchData();
+  }
+  function toggleOrderValue(v) {
+    if (selectedOrders.has(v)) selectedOrders.delete(v); else selectedOrders.add(v);
+    updateModelOrderButtons();
+    renderOrderFilterList();
+    syncUrl();
+    fetchData();
+  }
+  function clearModelFilter() {
+    if (selectedModels.size === 0) return;
+    selectedModels.clear();
+    updateModelOrderButtons();
+    renderModelFilterList();
+    syncUrl();
+    fetchData();
+  }
+  function clearOrderFilter() {
+    if (selectedOrders.size === 0) return;
+    selectedOrders.clear();
+    updateModelOrderButtons();
+    renderOrderFilterList();
+    syncUrl();
+    fetchData();
+  }
+
+  function updateModelOrderButtons() {
+    const mBtn = document.getElementById("modelFilterBtn");
+    const mLabel = document.getElementById("modelFilterLabel");
+    if (mBtn && mLabel) {
+      if (selectedModels.size === 0) { mBtn.classList.remove("active"); mLabel.textContent = "All models"; }
+      else if (selectedModels.size === 1) { mBtn.classList.add("active"); mLabel.textContent = [...selectedModels][0]; }
+      else { mBtn.classList.add("active"); mLabel.textContent = selectedModels.size + " models"; }
+    }
+    const oBtn = document.getElementById("orderFilterBtn");
+    const oLabel = document.getElementById("orderFilterLabel");
+    if (oBtn && oLabel) {
+      if (selectedOrders.size === 0) { oBtn.classList.remove("active"); oLabel.textContent = "All orders"; }
+      else if (selectedOrders.size === 1) { oBtn.classList.add("active"); oLabel.textContent = [...selectedOrders][0]; }
+      else { oBtn.classList.add("active"); oLabel.textContent = selectedOrders.size + " orders"; }
+    }
+  }
+
   // ============ Data fetch ============
 
   function buildFetchUrl() {
     const cacheBust = "&t=" + Date.now();
+    // Always send models/orders params (even empty) so the worker routes through
+    // the filter path and returns the distinct model/order lists for the
+    // checkboxes. Empty value = keep all.
+    const modelsParam = "&models=" + encodeURIComponent([...selectedModels].join(","));
+    const ordersParam = "&orders=" + encodeURIComponent([...selectedOrders].join(","));
     if (currentRange === 'custom' && customFrom && customTo) {
       return WORKER_URL +
         "?type=lab" +
         "&from=" + encodeURIComponent(customFrom) +
         "&to=" + encodeURIComponent(customTo) +
+        modelsParam + ordersParam +
         cacheBust;
     }
-    return WORKER_URL + "?type=lab&range=" + encodeURIComponent(currentRange) + cacheBust;
+    return WORKER_URL + "?type=lab&range=" + encodeURIComponent(currentRange) +
+      modelsParam + ordersParam + cacheBust;
   }
 
   async function fetchData() {
@@ -2386,6 +2556,12 @@
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       currentData = json;
+      // Capture available model/order values for the filter checkboxes.
+      if (json.filters) {
+        if (Array.isArray(json.filters.allModels)) availableModels = json.filters.allModels;
+        if (Array.isArray(json.filters.allOrders)) availableOrders = json.filters.allOrders;
+      }
+      updateModelOrderButtons();
       renderAll();
       const updateLabel = (currentRange === 'custom' && customFrom && customTo)
         ? "Showing " + customFrom + " → " + customTo

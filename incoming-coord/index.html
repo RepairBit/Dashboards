@@ -146,6 +146,42 @@
     margin-left: auto;
   }
 
+  /* Multi-select Model/Order filter dropdowns */
+  .mo-filter-wrap { position: relative; display: inline-block; }
+  /* Coordinator detail-view banner + mode hiding */
+  .coord-detail-banner { display: none; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding: 14px 18px; background: rgba(224,122,26,0.1); border: 1px solid rgba(224,122,26,0.35); border-radius: 10px; }
+  body.coord-detail .coord-detail-banner { display: flex; }
+  .cdb-left { display: flex; align-items: baseline; gap: 10px; }
+  .cdb-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+  .cdb-name { font-size: 20px; font-weight: 600; color: var(--brand); letter-spacing: -0.3px; }
+  .cdb-clear { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; color: var(--text-2); padding: 7px 14px; font-size: 12px; font-family: inherit; cursor: pointer; font-weight: 500; transition: all 0.15s; }
+  .cdb-clear:hover { border-color: var(--border-strong); background: #222226; }
+  body.coord-detail #leadersCard,
+  body.coord-detail #breakdownDivider,
+  body.coord-detail #tableWrap { display: none; }
+  /* When the leaders card is hidden, let the trend chart span full width */
+  body.coord-detail #trendLeadersRow { grid-template-columns: 1fr; }
+  .mo-filter-btn { display: inline-flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text-2); padding: 7px 12px; font-size: 12px; font-family: inherit; cursor: pointer; font-weight: 500; transition: all 0.15s; }
+  .mo-filter-btn:hover { border-color: var(--border-strong); }
+  .mo-filter-btn.active { background: rgba(224,122,26,0.12); border-color: rgba(224,122,26,0.4); color: var(--brand); }
+  .mo-filter-prefix { color: var(--muted-2); }
+  .mo-filter-btn.active .mo-filter-prefix { color: var(--brand); }
+  .mo-caret { font-size: 9px; color: var(--muted-2); }
+  .mo-panel { display: none; position: absolute; top: calc(100% + 6px); right: 0; z-index: 50; width: 240px; max-height: 320px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); flex-direction: column; overflow: hidden; }
+  .mo-panel.open { display: flex; }
+  .mo-search { padding: 8px; border-bottom: 1px solid var(--border); }
+  .mo-search input { width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 6px 10px; font-family: inherit; font-size: 12px; }
+  .mo-search input:focus { outline: none; border-color: var(--brand); }
+  .mo-list { overflow-y: auto; padding: 4px; }
+  .mo-list::-webkit-scrollbar { width: 6px; }
+  .mo-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .mo-option { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; font-size: 12px; color: var(--text-2); border-radius: 5px; cursor: pointer; }
+  .mo-option:hover { background: var(--surface-2); }
+  .mo-option.selected { background: rgba(224,122,26,0.1); color: var(--brand); }
+  .mo-option .chk { color: var(--brand); font-size: 11px; }
+  .mo-all { border-bottom: 1px solid var(--border); margin-bottom: 4px; font-weight: 600; }
+  .mo-empty { padding: 12px; text-align: center; color: var(--muted-2); font-size: 12px; }
+
   .shift-group { display: flex; align-items: center; gap: 8px; }
   .shift-bar { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 3px; gap: 2px; }
   .shift-btn { background: transparent; border: none; color: var(--muted); padding: 6px 14px; font-size: 12px; font-family: inherit; border-radius: 5px; cursor: pointer; transition: all 0.15s; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
@@ -249,6 +285,33 @@
       <button class="shift-btn" data-shift="day" onclick="setShift('day')"><span class="dot"></span>Day</button>
       <button class="shift-btn" data-shift="night" onclick="setShift('night')"><span class="dot"></span>Night</button>
     </div>
+    <div class="mo-filter-wrap">
+      <button class="mo-filter-btn" id="modelFilterBtn" onclick="toggleModelFilter(event)">
+        <span class="mo-filter-prefix">Model:</span><span id="modelFilterLabel">All</span><span class="mo-caret">▼</span>
+      </button>
+      <div class="mo-panel" id="modelFilterPanel">
+        <div class="mo-search"><input type="text" id="modelFilterSearch" placeholder="Search models..." oninput="renderModelFilterList()" onclick="event.stopPropagation()"></div>
+        <div class="mo-list" id="modelFilterList"></div>
+      </div>
+    </div>
+    <div class="mo-filter-wrap">
+      <button class="mo-filter-btn" id="orderFilterBtn" onclick="toggleOrderFilter(event)">
+        <span class="mo-filter-prefix">Order:</span><span id="orderFilterLabel">All</span><span class="mo-caret">▼</span>
+      </button>
+      <div class="mo-panel" id="orderFilterPanel">
+        <div class="mo-search"><input type="text" id="orderFilterSearch" placeholder="Search orders..." oninput="renderOrderFilterList()" onclick="event.stopPropagation()"></div>
+        <div class="mo-list" id="orderFilterList"></div>
+      </div>
+    </div>
+    <div class="mo-filter-wrap">
+      <button class="mo-filter-btn" id="coordFilterBtn" onclick="toggleCoordFilter(event)">
+        <span class="mo-filter-prefix">Coordinator:</span><span id="coordFilterLabel">All</span><span class="mo-caret">▼</span>
+      </button>
+      <div class="mo-panel" id="coordFilterPanel">
+        <div class="mo-search"><input type="text" id="coordFilterSearch" placeholder="Search coordinators..." oninput="renderCoordFilterList()" onclick="event.stopPropagation()"></div>
+        <div class="mo-list" id="coordFilterList"></div>
+      </div>
+    </div>
     <span class="last-updated" id="lastUpdated">Connecting...</span>
   </div>
 </div>
@@ -327,7 +390,15 @@
   </div>
 </div>
 
-<div class="chart-row">
+<div class="coord-detail-banner" id="coordDetailBanner">
+  <div class="cdb-left">
+    <span class="cdb-label">Viewing coordinator</span>
+    <span class="cdb-name" id="cdbName">—</span>
+  </div>
+  <button class="cdb-clear" onclick="clearCoordFilter()">← Back to all coordinators</button>
+</div>
+
+<div class="chart-row" id="trendLeadersRow">
   <div class="chart-card">
     <div class="chart-head">
       <div class="chart-title">Daily Trend</div>
@@ -335,7 +406,7 @@
     </div>
     <div class="chart-canvas-wrap"><canvas id="trendChart"></canvas></div>
   </div>
-  <div class="chart-card">
+  <div class="chart-card" id="leadersCard">
     <div class="chart-head">
       <div class="chart-title">Top 10 Coordinators</div>
       <span class="chart-meta">By boards</span>
@@ -369,7 +440,7 @@
   <div class="chart-canvas-wrap"><canvas id="hourlyChart"></canvas></div>
 </div>
 
-<div class="section-divider">
+<div class="section-divider" id="breakdownDivider">
   <div class="section-title">Coordinator Breakdown</div>
   <div class="section-meta" id="tableMeta">—</div>
 </div>
@@ -391,6 +462,18 @@
   let trendChart = null, leadersChart = null, modelsChart = null, errorsChart = null, hourlyChart = null;
   let sortKey = "units", sortDir = "desc";
   let browseMode = false, refreshTimer = null;
+
+  // Model / Order multi-select filter state (Sets of values to keep; empty =
+  // all). When non-empty the dashboard re-fetches with &models=/&orders= and
+  // the worker recomputes everything over the filtered rows.
+  let selectedModels = new Set();
+  let selectedOrders = new Set();
+  let availableModels = [];
+  let availableOrders = [];
+  // Single-coordinator detail view. When non-null, the dashboard re-fetches
+  // scoped to one coordinator and hides the leaderboard + breakdown table.
+  let selectedCoordinator = null;
+  let availableCoordinators = [];
 
   const COLORS = {
     text: '#FAFAFB', text2: '#ECECEE', muted: '#9A9AA1', muted2: '#6E6E76',
@@ -538,13 +621,17 @@
 
   function buildFetchUrl() {
     const cacheBust = "&t=" + Date.now();
+    const modelsParam = "&models=" + encodeURIComponent([...selectedModels].join(","));
+    const ordersParam = "&orders=" + encodeURIComponent([...selectedOrders].join(","));
+    const coordParam = "&coordinator=" + encodeURIComponent(selectedCoordinator || "");
     if (currentRange === 'custom' && customFrom && customTo) {
       return WORKER_URL + "?type=coordinator" +
         "&from=" + encodeURIComponent(customFrom) +
         "&to=" + encodeURIComponent(customTo) +
-        cacheBust;
+        modelsParam + ordersParam + coordParam + cacheBust;
     }
-    return WORKER_URL + "?type=coordinator&range=" + encodeURIComponent(currentRange) + cacheBust;
+    return WORKER_URL + "?type=coordinator&range=" + encodeURIComponent(currentRange) +
+      modelsParam + ordersParam + coordParam + cacheBust;
   }
 
   async function fetchData() {
@@ -553,6 +640,13 @@
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       currentData = json;
+      if (json.filters) {
+        if (Array.isArray(json.filters.allModels)) availableModels = json.filters.allModels;
+        if (Array.isArray(json.filters.allOrders)) availableOrders = json.filters.allOrders;
+        if (Array.isArray(json.filters.allCoordinators)) availableCoordinators = json.filters.allCoordinators;
+      }
+      updateModelOrderButtons();
+      updateCoordinatorButton();
       renderAll();
       const updateLabel = (currentRange === 'custom' && customFrom && customTo)
         ? "Showing " + customFrom + " → " + customTo
@@ -560,6 +654,124 @@
       document.getElementById("lastUpdated").textContent = updateLabel;
     } catch (e) {
       document.getElementById("lastUpdated").textContent = "Connection error — retrying";
+    }
+  }
+
+  // ============ Model / Order multi-select filters ============
+  function toggleModelFilter(event) {
+    if (event) event.stopPropagation();
+    const p = document.getElementById("modelFilterPanel");
+    closeOrderFilter();
+    if (p.classList.contains("open")) closeModelFilter();
+    else { p.classList.add("open"); renderModelFilterList(); }
+  }
+  function closeModelFilter() { document.getElementById("modelFilterPanel").classList.remove("open"); }
+  function toggleOrderFilter(event) {
+    if (event) event.stopPropagation();
+    const p = document.getElementById("orderFilterPanel");
+    closeModelFilter();
+    if (p.classList.contains("open")) closeOrderFilter();
+    else { p.classList.add("open"); renderOrderFilterList(); }
+  }
+  function closeOrderFilter() { document.getElementById("orderFilterPanel").classList.remove("open"); }
+
+  function renderValueFilterList(listElId, values, selectedSet, searchElId, toggleFn, clearFn) {
+    const q = (document.getElementById(searchElId).value || "").toLowerCase().trim();
+    const matching = values.filter(v => !q || v.toLowerCase().includes(q));
+    let html = '<div class="mo-option mo-all' + (selectedSet.size === 0 ? ' selected' : '') +
+               '" onclick="' + clearFn + '(); event.stopPropagation();">All</div>';
+    if (matching.length === 0) {
+      html += '<div class="mo-empty">No matches</div>';
+    } else {
+      matching.forEach(v => {
+        const sel = selectedSet.has(v);
+        html += '<div class="mo-option' + (sel ? ' selected' : '') + '" onclick="' + toggleFn +
+                '(' + JSON.stringify(v).replace(/"/g, '&quot;') + '); event.stopPropagation();">' +
+                '<span>' + esc(v) + '</span>' + (sel ? '<span class="chk">✓</span>' : '') + '</div>';
+      });
+    }
+    document.getElementById(listElId).innerHTML = html;
+  }
+  function renderModelFilterList() { renderValueFilterList("modelFilterList", availableModels, selectedModels, "modelFilterSearch", "toggleModelValue", "clearModelFilter"); }
+  function renderOrderFilterList() { renderValueFilterList("orderFilterList", availableOrders, selectedOrders, "orderFilterSearch", "toggleOrderValue", "clearOrderFilter"); }
+
+  function toggleModelValue(v) { selectedModels.has(v) ? selectedModels.delete(v) : selectedModels.add(v); updateModelOrderButtons(); renderModelFilterList(); fetchData(); }
+  function toggleOrderValue(v) { selectedOrders.has(v) ? selectedOrders.delete(v) : selectedOrders.add(v); updateModelOrderButtons(); renderOrderFilterList(); fetchData(); }
+  function clearModelFilter() { if (selectedModels.size === 0) return; selectedModels.clear(); updateModelOrderButtons(); renderModelFilterList(); fetchData(); }
+  function clearOrderFilter() { if (selectedOrders.size === 0) return; selectedOrders.clear(); updateModelOrderButtons(); renderOrderFilterList(); fetchData(); }
+
+  function updateModelOrderButtons() {
+    const mBtn = document.getElementById("modelFilterBtn"), mLabel = document.getElementById("modelFilterLabel");
+    if (mBtn && mLabel) {
+      if (selectedModels.size === 0) { mBtn.classList.remove("active"); mLabel.textContent = "All"; }
+      else if (selectedModels.size === 1) { mBtn.classList.add("active"); mLabel.textContent = [...selectedModels][0]; }
+      else { mBtn.classList.add("active"); mLabel.textContent = selectedModels.size + " selected"; }
+    }
+    const oBtn = document.getElementById("orderFilterBtn"), oLabel = document.getElementById("orderFilterLabel");
+    if (oBtn && oLabel) {
+      if (selectedOrders.size === 0) { oBtn.classList.remove("active"); oLabel.textContent = "All"; }
+      else if (selectedOrders.size === 1) { oBtn.classList.add("active"); oLabel.textContent = [...selectedOrders][0]; }
+      else { oBtn.classList.add("active"); oLabel.textContent = selectedOrders.size + " selected"; }
+    }
+  }
+
+  document.addEventListener("click", function(e) {
+    const inModel = e.target.closest && e.target.closest(".mo-filter-wrap");
+    if (!inModel) { closeModelFilter(); closeOrderFilter(); closeCoordFilter(); }
+  });
+
+  // ===== Coordinator single-select detail filter =====
+  function toggleCoordFilter(event) {
+    if (event) event.stopPropagation();
+    const p = document.getElementById("coordFilterPanel");
+    closeModelFilter(); closeOrderFilter();
+    if (p.classList.contains("open")) closeCoordFilter();
+    else { p.classList.add("open"); renderCoordFilterList(); }
+  }
+  function closeCoordFilter() { document.getElementById("coordFilterPanel").classList.remove("open"); }
+
+  function renderCoordFilterList() {
+    const q = (document.getElementById("coordFilterSearch").value || "").toLowerCase().trim();
+    const matching = availableCoordinators.filter(v => !q || v.toLowerCase().includes(q));
+    let html = '<div class="mo-option mo-all' + (selectedCoordinator === null ? ' selected' : '') +
+               '" onclick="clearCoordFilter(); event.stopPropagation();">All coordinators</div>';
+    if (matching.length === 0) {
+      html += '<div class="mo-empty">No matches</div>';
+    } else {
+      matching.forEach(v => {
+        const sel = selectedCoordinator === v;
+        html += '<div class="mo-option' + (sel ? ' selected' : '') + '" onclick="selectCoordinator(' +
+                JSON.stringify(v).replace(/"/g, '&quot;') + '); event.stopPropagation();">' +
+                '<span>' + esc(v) + '</span>' + (sel ? '<span class="chk">✓</span>' : '') + '</div>';
+      });
+    }
+    document.getElementById("coordFilterList").innerHTML = html;
+  }
+  function selectCoordinator(name) {
+    selectedCoordinator = name;
+    closeCoordFilter();
+    updateCoordinatorButton();
+    fetchData();
+  }
+  function clearCoordFilter() {
+    if (selectedCoordinator === null) return;
+    selectedCoordinator = null;
+    updateCoordinatorButton();
+    fetchData();
+  }
+  function updateCoordinatorButton() {
+    const btn = document.getElementById("coordFilterBtn"), label = document.getElementById("coordFilterLabel");
+    if (btn && label) {
+      if (selectedCoordinator) { btn.classList.add("active"); label.textContent = selectedCoordinator; }
+      else { btn.classList.remove("active"); label.textContent = "All"; }
+    }
+    // Toggle detail-view body class + banner
+    if (selectedCoordinator) {
+      document.body.classList.add("coord-detail");
+      const nm = document.getElementById("cdbName");
+      if (nm) nm.textContent = selectedCoordinator;
+    } else {
+      document.body.classList.remove("coord-detail");
     }
   }
 
@@ -990,13 +1202,19 @@
 
     // Charts
     renderTrendChart(slice.trend);
-    renderLeadersChart(slice.leaders);
+    // In single-coordinator detail mode the leaderboard + breakdown table are
+    // hidden, so skip rendering them (avoids Chart.js sizing on a hidden canvas).
+    if (!selectedCoordinator) {
+      renderLeadersChart(slice.leaders);
+    }
     renderModelsChart(slice.models);
     renderErrorsChart(slice.errorTypes || []);
     renderHourlyChart(slice.hourlyAvg || new Array(24).fill(0));
 
     // Table
-    renderTable(slice.coordStats, slice.errorTypes);
+    if (!selectedCoordinator) {
+      renderTable(slice.coordStats, slice.errorTypes);
+    }
   }
 
   function esc(str) {

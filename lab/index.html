@@ -105,9 +105,9 @@
     letter-spacing: 0.2px;
   }
   .brand-title {
-    font-size: 40px;
+    font-size: 32px;
     font-weight: 600;
-    letter-spacing: -1.2px;
+    letter-spacing: -0.6px;
     color: var(--text);
     margin-top: 1px;
   }
@@ -2970,6 +2970,7 @@
             graveyards: 0,
             kickbacks: 0,
             techDays: 0,
+            techHours: 0,
             terminated: false,
             // Track the largest entry so we can grab its trend
             _largestTouches: -1,
@@ -2989,6 +2990,11 @@
         // double- or triple-counted.
         c.kickbacks = Math.max(c.kickbacks, t.kickbacks || 0);
         c.techDays += (t.techDays || 0);
+        // Sum the ACTUAL hours the worker used as each entry's BPH denominator
+        // (elapsed-since-first-board on Today, else techDays*8). Summing these
+        // and dividing total repairs by them makes the All Techs BPH reconcile
+        // exactly with the per-tech card BPH — including for cross-team techs.
+        c.techHours += (t.techHours || 0);
         if (isTerminatedTeam) c.terminated = true;
         // Use the trend from the entry where they did the most work — it has
         // the most signal. For a tech split 80/20 across teams, the 80%
@@ -3022,10 +3028,16 @@
                        uniqueTeams.filter(s => s.toLowerCase().trim() !== 'terminated').length > 1;
 
       const repairable = c.touches - c.falseAsics;
-      const netRepairs = Math.max(0, c.repairs - c.kickbacks);
-      const pct = repairable > 0 ? Math.round((netRepairs / repairable) * 100) : 0;
-      const hours = c.techDays * 8;
-      const bph = hours > 0 ? Math.round((netRepairs / hours) * 100) / 100 : 0;
+      // Match the per-tech card's pct exactly: (repairs - falseAsics) /
+      // (touches - falseAsics), with NO kickback subtraction. (falseAsics are
+      // already excluded from c.repairs upstream, so c.repairs is net-of-FA.)
+      const pct = repairable > 0 ? Math.round((c.repairs / repairable) * 100) : 0;
+      // BPH must match the per-tech card exactly. The card computes
+      // bph = repairs / techHours (plain repairs, NOT net-of-kickbacks, and
+      // techHours = elapsed-today or techDays*8). Use the summed techHours and
+      // the same plain-repairs numerator so the two views reconcile.
+      const hours = c.techHours;
+      const bph = hours > 0 ? Math.round((c.repairs / hours) * 100) / 100 : 0;
       const kickbackRate = c.repairs > 0 ? Math.round((c.kickbacks / c.repairs) * 1000) / 10 : 0;
 
       // Clean up internal field

@@ -922,9 +922,14 @@
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 18px 20px;
-    transition: border-color 0.15s;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+    cursor: pointer;
   }
-  .tech-card:hover { border-color: var(--border-strong); }
+  .tech-card:hover {
+    border-color: var(--border-strong);
+    background: rgba(255,255,255,0.025);
+  }
+  .tech-card:active { transform: scale(0.997); }
   .tech-card-head {
     display: flex;
     justify-content: space-between;
@@ -3201,8 +3206,13 @@
   // The actual SVG drawing happens in renderDistributionCharts() once the
   // tab is navigated to — defer keeps the main render pass fast and avoids
   // computing SVG for a panel the user may never visit.
-  function renderDistributionPanel(durations) {
-    if (!durations || durations.length === 0) {
+  function renderDistributionPanel(rawDurations) {
+    // Filter out False ASICs from the Distribution view entirely. They aren't
+    // repair attempts — they're rejects, typically logged in 0-5 minutes and
+    // their volume would dominate the histogram and clutter the strip plot
+    // with information that isn't about tech performance.
+    const durations = (rawDurations || []).filter(d => d.o !== 'f');
+    if (durations.length === 0) {
       return '<div class="dist-empty">' +
         'No duration data available for this range. ' +
         'The Distribution view shows per-board repair durations once boards ' +
@@ -3213,7 +3223,8 @@
       '<div class="team-header">' +
         '<div class="team-name">Distribution</div>' +
         '<div class="team-meta">' +
-          '<strong>' + durations.length.toLocaleString() + '</strong> boards with duration data' +
+          '<strong>' + durations.length.toLocaleString() + '</strong> boards with duration data ' +
+          '<span class="muted-2" style="font-size:11px; margin-left:8px;">(false ASICs excluded)</span>' +
         '</div>' +
       '</div>' +
       '<div class="chart-card">' +
@@ -3223,7 +3234,6 @@
             '<div class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--dist-repair)"></span>Repair</div>' +
             '<div class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--dist-giveup)"></span>Give Up</div>' +
             '<div class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--dist-graveyard)"></span>Graveyard</div>' +
-            '<div class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--dist-falsease)"></span>False ASIC</div>' +
           '</div>' +
         '</div>' +
         '<div id="distHist" class="hist-wrap"></div>' +
@@ -3240,7 +3250,8 @@
 
   // Lazily render the SVG charts when Distribution tab is opened.
   function renderDistributionCharts() {
-    const durations = (currentData && currentData.durations) || [];
+    const raw = (currentData && currentData.durations) || [];
+    const durations = raw.filter(d => d.o !== 'f');
     if (durations.length === 0) return;
     renderDistHistogram(durations);
     renderDistStripPlot(durations);
@@ -3262,12 +3273,12 @@
     { min: 90,  max: 9999, label: '90+' },
   ];
   // Outcome render order — repairs at the bottom of the stack so they read
-  // first; false ASICs at top because they're a small audit-only category.
+  // first. False ASICs are filtered out at the panel level (see
+  // renderDistributionPanel) so they don't appear here.
   const DIST_OUTCOMES = [
     { key: 'r', cls: 'hist-bar-repair',    label: 'Repair' },
     { key: 'g', cls: 'hist-bar-giveup',    label: 'Give Up' },
     { key: 'k', cls: 'hist-bar-graveyard', label: 'Graveyard' },
-    { key: 'f', cls: 'hist-bar-falseasic', label: 'False ASIC' },
   ];
 
   function bucketIndexFor(d) {
@@ -3367,16 +3378,18 @@
     const allDs = durations.map(d => d.d);
     const labMedian = median(allDs);
 
-    // X-axis upper bound — use 95th percentile to keep the plot readable
-    // (don't let one 4-hour outlier squash everyone into the left margin).
+    // X-axis upper bound — 90th percentile rounded to a sensible 10-min
+    // increment, capped at 90. Using 90th instead of 95th keeps the bulk
+    // of data filling the plot width; outliers beyond xMax get clamped to
+    // the right edge (still visible as a dot, just doesn't blow up the scale).
     const sortedAll = allDs.slice().sort((a, b) => a - b);
-    const p95 = sortedAll[Math.floor(sortedAll.length * 0.95)] || 60;
-    const xMax = Math.min(120, Math.max(60, Math.ceil(p95 / 10) * 10));
+    const p90 = sortedAll[Math.floor(sortedAll.length * 0.90)] || 45;
+    const xMax = Math.min(90, Math.max(45, Math.ceil(p90 / 10) * 10));
 
-    // Layout
-    const rowH = 22;
-    const labelColW = 130;
-    const padL = 8, padR = 16, padTop = 8, padBottom = 28;
+    // Layout — taller rows, name + meta stacked clearly on the left
+    const rowH = 30;
+    const labelColW = 150;
+    const padL = 8, padR = 16, padTop = 10, padBottom = 32;
     const W = wrap.clientWidth || 900;
     const plotW = W - padL - padR - labelColW;
     const H = padTop + techStats.length * rowH + padBottom;
@@ -3410,45 +3423,48 @@
     svg += '<text class="strip-axis-label" x="' + (labelColW + padL + plotW / 2).toFixed(1) +
            '" y="' + (H - 4).toFixed(1) + '">minutes</text>';
 
-    // Lab median label
+    // Lab median label (positioned just above plot area)
     svg += '<text class="strip-median-label" x="' + (xScale(labMedian) + 4).toFixed(1) +
-           '" y="' + (padTop + 10).toFixed(1) + '">lab med ' + labMedian.toFixed(0) + 'm</text>';
+           '" y="' + (padTop - 2).toFixed(1) + '">lab median ' + labMedian.toFixed(0) + 'm</text>';
+
+    // Jitter band — dots constrained to the middle 50% of the row so adjacent
+    // rows don't bleed into each other visually.
+    const jitterBand = rowH * 0.5;
 
     // Tech rows
     techStats.forEach((t, i) => {
-      const yMid = padTop + i * rowH + rowH / 2;
-      // Tech name + median + n
-      svg += '<text class="strip-row-label" x="8" y="' + (yMid - 2).toFixed(1) + '">' + esc(t.name) + '</text>';
-      svg += '<text class="strip-row-meta" x="8" y="' + (yMid + 10).toFixed(1) + '">' +
+      const rowTop = padTop + i * rowH;
+      const yMid = rowTop + rowH / 2;
+      // Tech name (top of label column) + median + n (below it)
+      svg += '<text class="strip-row-label" x="8" y="' + (rowTop + 12).toFixed(1) + '">' + esc(t.name) + '</text>';
+      svg += '<text class="strip-row-meta" x="8" y="' + (rowTop + 24).toFixed(1) + '">' +
              t.median.toFixed(0) + 'm · n=' + t.n + '</text>';
-      // Low-N caveat for techs with very few boards (statistically unreliable)
-      if (t.n < 10) {
+      // Low-N caveat — under 5 boards is genuinely unreliable; 5-12 is OK for shape.
+      if (t.n < 5) {
         svg += '<text class="strip-low-n" x="' + (labelColW - 4).toFixed(1) +
                '" y="' + (yMid + 4).toFixed(1) + '" text-anchor="end">low n</text>';
       }
-      // Dots — jittered vertically within the row band
+      // Dots — jittered within the middle band only
       t.items.forEach((d, j) => {
-        // Deterministic jitter from name + index — same dots stay in the
-        // same y position across re-renders.
+        // Deterministic jitter so dots stay put across re-renders.
         const jitter = ((j * 9301 + 49297) % 233280) / 233280 - 0.5;
-        const y = yMid + jitter * (rowH - 8);
+        const y = yMid + jitter * jitterBand;
         const x = xScale(d.d);
         const cls = d.o === 'r' ? 'strip-dot-repair'
                  : d.o === 'g' ? 'strip-dot-giveup'
                  : d.o === 'k' ? 'strip-dot-graveyard'
                  : 'strip-dot-falseasic';
-        // Tooltip via <title>
         const outLabel = d.o === 'r' ? 'Repair' : d.o === 'g' ? 'Give Up' : d.o === 'k' ? 'Graveyard' : 'False ASIC';
         svg += '<circle class="strip-dot ' + cls + '" cx="' + x.toFixed(1) +
                '" cy="' + y.toFixed(1) + '" r="2.5"><title>' + esc(t.name) + ': ' +
                d.d.toFixed(1) + ' min · ' + outLabel + '</title></circle>';
       });
-      // Tech median tick
+      // Tech median tick — short vertical mark
       const tmX = xScale(t.median);
       svg += '<line class="strip-tech-median" x1="' + tmX.toFixed(1) +
-             '" y1="' + (yMid - rowH / 2 + 3).toFixed(1) +
+             '" y1="' + (rowTop + 4).toFixed(1) +
              '" x2="' + tmX.toFixed(1) +
-             '" y2="' + (yMid + rowH / 2 - 3).toFixed(1) + '"/>';
+             '" y2="' + (rowTop + rowH - 4).toFixed(1) + '"/>';
     });
 
     svg += '</svg>';
@@ -3757,21 +3773,26 @@
   // no duration data for this tech in current range. The SVG is built inline
   // here (no deferred render) since tech detail view is a focused single-page.
   function renderTechMiniDistHTML(techName) {
-    const all = (currentData && currentData.durations) || [];
+    // Exclude false ASICs — see comment on renderDistributionPanel for why.
+    const all = ((currentData && currentData.durations) || []).filter(d => d.o !== 'f');
     if (all.length === 0) return '';
     const techDur = all.filter(d => d.n === techName);
     if (techDur.length === 0) return '';
 
-    // Bucket both lab and tech using the same DIST_BUCKETS as the main view
+    // Bucket both lab and tech using the same DIST_BUCKETS as the main view.
+    // Convert to PERCENTAGES so a tech with 20 boards is comparable to a lab
+    // with 5000 — we're comparing shapes (how their work distributes across
+    // buckets), not raw counts.
     const labCounts = DIST_BUCKETS.map(() => 0);
     const techCounts = DIST_BUCKETS.map(() => 0);
     all.forEach(d => labCounts[bucketIndexFor(d.d)]++);
     techDur.forEach(d => techCounts[bucketIndexFor(d.d)]++);
-
-    // Normalize each to its own scale (percent of population), so a tech with
-    // few boards isn't dwarfed by the lab's totals. We're comparing shapes.
-    const labMax = Math.max(1, ...labCounts);
-    const techMax = Math.max(1, ...techCounts);
+    const labTotal = all.length, techTotal = techDur.length;
+    const labPct = labCounts.map(c => c / labTotal);
+    const techPct = techCounts.map(c => c / techTotal);
+    // SHARED max scale — the bigger of the two distributions' peak %, so the
+    // viewer can read "this tech has more boards in the 0-5 bucket" vs the lab.
+    const maxPct = Math.max(...labPct, ...techPct, 0.01);
 
     function median(arr) {
       const s = arr.slice().sort((a, b) => a - b);
@@ -3796,12 +3817,16 @@
 
     DIST_BUCKETS.forEach((b, i) => {
       const x = padL + i * (barW + barGap);
-      // Lab background (faint)
-      const labH = (labCounts[i] / labMax) * plotH;
-      svg += '<rect class="tech-mini-hist-bg" x="' + x.toFixed(1) + '" y="' + (padTop + plotH - labH).toFixed(1) +
-             '" width="' + barW.toFixed(1) + '" height="' + labH.toFixed(1) + '" rx="1"/>';
-      // Tech foreground (colored)
-      const techH = (techCounts[i] / techMax) * plotH;
+      // Lab background (faint grey, scaled by lab%)
+      const labH = (labPct[i] / maxPct) * plotH;
+      if (labH > 0) {
+        svg += '<rect class="tech-mini-hist-bg" x="' + x.toFixed(1) + '" y="' + (padTop + plotH - labH).toFixed(1) +
+               '" width="' + barW.toFixed(1) + '" height="' + labH.toFixed(1) + '" rx="1"/>';
+      }
+      // Tech foreground (teal, scaled by tech%) — overlays the lab bar so you
+      // see at a glance whether the tech is over- or under-represented in
+      // that bucket vs the lab as a whole.
+      const techH = (techPct[i] / maxPct) * plotH;
       if (techH > 0) {
         svg += '<rect class="tech-mini-hist-bar hist-bar-repair" x="' + x.toFixed(1) +
                '" y="' + (padTop + plotH - techH).toFixed(1) +
@@ -3816,7 +3841,9 @@
 
     return '<div class="tech-detail-dist">' +
       '<div class="tech-detail-dist-title">Repair Time Distribution · ' +
-      'tech median ' + techMed.toFixed(0) + 'm · lab median ' + labMed.toFixed(0) + 'm</div>' +
+      'tech median ' + techMed.toFixed(0) + 'm · lab median ' + labMed.toFixed(0) + 'm · ' +
+      'lab shown as grey background' +
+      '</div>' +
       '<div class="tech-mini-hist">' + svg + '</div>' +
     '</div>';
   }
@@ -4128,7 +4155,7 @@
               '<span class="tech-kickback-val ' + tcKbCls + '">' + tcKickbacks + ' · ' + fmtRate(tcKbRate) + '%</span>' +
             '</div>';
 
-        return '<div class="tech-card">' +
+        return '<div class="tech-card" onclick="selectTech(' + JSON.stringify(s.name).replace(/"/g,'&quot;') + ')" title="Click for detailed view">' +
           '<div class="tech-card-head">' +
             '<div>' +
               '<div class="tech-card-name">' + esc(s.name) + '</div>' +
@@ -4187,6 +4214,13 @@
     distPanel.id = "team-dist";
     distPanel.innerHTML = renderDistributionPanel(currentData.durations || []);
     stage.appendChild(distPanel);
+
+    // If the user is currently on the Distribution tab, draw its SVG charts
+    // now. Without this, auto-refresh (every REFRESH_MS) would rebuild the
+    // panel HTML but never repopulate the SVGs, making the charts disappear.
+    if (currentTeam === DISTRIBUTION_INDEX) {
+      renderDistributionCharts();
+    }
 
     // Hide banner
     document.getElementById("techBanner").classList.remove("show");

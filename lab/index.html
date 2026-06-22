@@ -2153,7 +2153,7 @@
       <button class="tech-filter-btn" id="modelFilterBtn" onclick="toggleModelFilter(event)">
         <span class="tech-filter-btn-label">
           <span class="tech-filter-btn-prefix">Model:</span>
-          <span id="modelFilterLabel">All models</span>
+          <span id="modelFilterLabel">All Models</span>
         </span>
         <span class="tech-filter-caret">▼</span>
       </button>
@@ -2168,7 +2168,7 @@
       <button class="tech-filter-btn" id="orderFilterBtn" onclick="toggleOrderFilter(event)">
         <span class="tech-filter-btn-label">
           <span class="tech-filter-btn-prefix">Order:</span>
-          <span id="orderFilterLabel">All orders</span>
+          <span id="orderFilterLabel">All Orders</span>
         </span>
         <span class="tech-filter-caret">▼</span>
       </button>
@@ -2183,7 +2183,7 @@
       <button class="tech-filter-btn" id="techFilterBtn" onclick="toggleTechFilter(event)">
         <span class="tech-filter-btn-label">
           <span class="tech-filter-btn-prefix">Person:</span>
-          <span id="techFilterLabel">All techs</span>
+          <span id="techFilterLabel">All Techs</span>
         </span>
         <span class="tech-filter-caret">▼</span>
       </button>
@@ -2730,10 +2730,10 @@
     }
 
     let html = '';
-    // "All techs" option at the top
+    // "All Techs" option at the top
     const allSelected = !selectedTechName;
     html += '<div class="tech-filter-option tech-filter-all' + (allSelected ? ' selected' : '') + '" ' +
-            'onclick="selectTech(null)">All techs</div>';
+            'onclick="selectTech(null)">All Techs</div>';
 
     teamOrder.forEach(teamName => {
       const teamTechs = matching.filter(t => t.team === teamName);
@@ -2765,7 +2765,7 @@
     });
 
     if (!html.includes("tech-filter-option") || (allList.length > 0 && matching.length === 0)) {
-      // If only the "All techs" entry got rendered (and there's a search) it's a no-match
+      // If only the "All Techs" entry got rendered (and there's a search) it's a no-match
       if (search && matching.length === 0) {
         html = '<div class="tech-filter-empty">No matches for "' + esc(search) + '"</div>';
       }
@@ -2799,7 +2799,7 @@
       label.textContent = selectedTechName;
     } else {
       btn.classList.remove("active");
-      label.textContent = "All techs";
+      label.textContent = "All Techs";
     }
   }
 
@@ -2901,14 +2901,14 @@
     const mBtn = document.getElementById("modelFilterBtn");
     const mLabel = document.getElementById("modelFilterLabel");
     if (mBtn && mLabel) {
-      if (selectedModels.size === 0) { mBtn.classList.remove("active"); mLabel.textContent = "All models"; }
+      if (selectedModels.size === 0) { mBtn.classList.remove("active"); mLabel.textContent = "All Models"; }
       else if (selectedModels.size === 1) { mBtn.classList.add("active"); mLabel.textContent = [...selectedModels][0]; }
       else { mBtn.classList.add("active"); mLabel.textContent = selectedModels.size + " models"; }
     }
     const oBtn = document.getElementById("orderFilterBtn");
     const oLabel = document.getElementById("orderFilterLabel");
     if (oBtn && oLabel) {
-      if (selectedOrders.size === 0) { oBtn.classList.remove("active"); oLabel.textContent = "All orders"; }
+      if (selectedOrders.size === 0) { oBtn.classList.remove("active"); oLabel.textContent = "All Orders"; }
       else if (selectedOrders.size === 1) { oBtn.classList.add("active"); oLabel.textContent = [...selectedOrders][0]; }
       else { oBtn.classList.add("active"); oLabel.textContent = selectedOrders.size + " orders"; }
     }
@@ -3541,7 +3541,7 @@
     // === Rank computation ===
     // We rank by three metrics (repairs, pct, bph) across two cohorts:
     //   - Team: techs in the same team panel as the selected tech
-    //   - Lab:  all techs across active teams, EXCLUDING Terminated and Training
+    //   - Lab:  All Techs across active teams, EXCLUDING Terminated and Training
     //           (those aren't really competing in the current period)
     // Ties use dense rank: two tied at the top are both #1, next is #2.
     // Returns null when the cohort has 0 or 1 entries (no meaningful rank).
@@ -4544,7 +4544,7 @@
   // of what's currently on the dashboard:
   //   Step 1: Pick a date range (or custom dates)
   //   Step 2: Pick a scope — Entire Lab, or one team
-  //   Step 3: (only if a team was picked) — All techs on team, or one tech
+  //   Step 3: (only if a team was picked) — All Techs on team, or one tech
   //
   // The report is rendered into a hidden #printContainer div using
   // print-only CSS. window.print() shows it; the dashboard view itself
@@ -4794,10 +4794,10 @@
     });
 
     let html = '';
-    // "All techs in this team" option
+    // "All Techs in this team" option
     html += '<div class="pdf-tech-item pdf-tech-all ' + (pdfState.tech === 'all' ? 'selected' : '') + '" ' +
             'onclick="selectPdfTech(\'all\')">' +
-              '<span>All techs in ' + esc(teamName) + '</span>' +
+              '<span>All Techs in ' + esc(teamName) + '</span>' +
               '<span class="pdf-item-count">' + sorted.length + '</span>' +
             '</div>';
     sorted.forEach(t => {
@@ -4827,7 +4827,7 @@
       return;
     }
     if (pdfState.scope.startsWith('team:') && !pdfState.tech) {
-      status.textContent = 'Pick "All techs" or a specific tech.';
+      status.textContent = 'Pick "All Techs" or a specific tech.';
       status.classList.remove('ready');
       btn.disabled = true;
       return;
@@ -4838,7 +4838,7 @@
     else {
       const teamName = pdfState.scope.substring(5);
       scopeLabel = pdfState.tech === 'all'
-        ? 'All techs in ' + teamName
+        ? 'All Techs in ' + teamName
         : pdfState.tech + ' (' + teamName + ')';
     }
     status.textContent = 'Ready: ' + scopeLabel;

@@ -839,13 +839,19 @@
     padding-top: 22px;
     border-top: 1px solid var(--border);
   }
-  .tech-detail-dist-head {
+  /* Each side of the 2-column layout gets its own section with its own
+     header (title + meta) so they read as related-but-separate panels. */
+  .tech-detail-dist-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .tech-detail-dist-section-head {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    margin-bottom: 14px;
+    gap: 10px;
     flex-wrap: wrap;
-    gap: 12px;
   }
   .tech-detail-dist-title {
     font-size: 13px;
@@ -891,7 +897,7 @@
     gap: 24px;
     align-items: start;
   }
-  @media (max-width: 900px) {
+  @media (max-width: 640px) {
     .tech-detail-dist-body { grid-template-columns: 1fr; }
   }
   /* Status panel — the "quick glance" indicator a Team Lead reads first. */
@@ -1905,6 +1911,26 @@
     .pr-tcm-value.good { color: #16803c; }
     .pr-tcm-value.ok { color: #b45309; }
     .pr-tcm-value.bad { color: #b91c1c; }
+    /* Rework row — appears only on Senior Tech / Team Lead cards when they
+       have rework boards (second-pass work on previously given-up serials).
+       Sits below the main metrics row, separated by a hairline. */
+    .pr-tech-card-rework {
+      margin-top: 8px;
+      padding-top: 6px;
+      border-top: 1px dashed #ccc;
+    }
+    .pr-tech-card-rework-label {
+      font-size: 7.5pt;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #555;
+      margin-bottom: 2px;
+    }
+    .pr-tech-card-rework-stats {
+      font-size: 9pt;
+      color: #222;
+      font-variant-numeric: tabular-nums;
+    }
 
     .pr-callout {
       background: #fef3c7;
@@ -3245,6 +3271,13 @@
             techDays: 0,
             techHours: 0,
             terminated: false,
+            // Rework counters mirror the per-team fields. Summed across
+            // team entries the same way as touches/repairs/etc. so a tech
+            // who split team time gets a single accurate total.
+            rework: {
+              touches: 0, repairs: 0, falseAsics: 0,
+              giveups: 0, graveyards: 0,
+            },
             // Track the largest entry so we can grab its trend
             _largestTouches: -1,
             trend: null,
@@ -3257,6 +3290,15 @@
         c.falseAsics += (t.falseAsics || 0);
         c.giveups += (t.giveups || 0);
         c.graveyards += (t.graveyards || 0);
+        // Rework: sum the raw counts; final pct is recomputed below from the
+        // summed totals so it doesn't average team-level percentages.
+        if (t.rework) {
+          c.rework.touches    += (t.rework.touches    || 0);
+          c.rework.repairs    += (t.rework.repairs    || 0);
+          c.rework.falseAsics += (t.rework.falseAsics || 0);
+          c.rework.giveups    += (t.rework.giveups    || 0);
+          c.rework.graveyards += (t.rework.graveyards || 0);
+        }
         // Kickbacks: Worker puts the SAME full per-tech total on every team
         // entry (we don't split kickbacks by team). So we take it once, not
         // sum — otherwise a cross-team tech would have their kickbacks
@@ -3316,6 +3358,13 @@
       // Clean up internal field
       delete c._largestTouches;
 
+      // Rework: recompute pct from summed totals (don't average team pcts).
+      // Same formula as first-pass: false ASICs subtract from both sides.
+      const rwRepairable = c.rework.touches - c.rework.falseAsics;
+      const rwPct = rwRepairable > 0
+        ? Math.round((c.rework.repairs / rwRepairable) * 100)
+        : 0;
+
       return {
         name: c.name,
         level: c.level,
@@ -3333,6 +3382,7 @@
         techDays: c.techDays,
         pct,
         bph,
+        rework: { ...c.rework, pct: rwPct },
         trend: c.trend,
       };
     });
@@ -3823,12 +3873,20 @@
         : 'No boards with duration data in this range for ' + esc(techName) + '.';
       return '' +
         '<div class="tech-detail-dist">' +
-          '<div class="tech-detail-dist-head">' +
-            '<div class="tech-detail-dist-title">Performance Snapshot</div>' +
-          '</div>' +
           '<div class="tech-detail-dist-body">' +
-            '<div class="tdist-empty">' + noDataMsg + '</div>' +
-            statusBlock +
+            '<div class="tech-detail-dist-section">' +
+              '<div class="tech-detail-dist-section-head">' +
+                '<div class="tech-detail-dist-title">Repair Time Distribution</div>' +
+              '</div>' +
+              '<div class="tdist-empty">' + noDataMsg + '</div>' +
+            '</div>' +
+            '<div class="tech-detail-dist-section">' +
+              '<div class="tech-detail-dist-section-head">' +
+                '<div class="tech-detail-dist-title">Performance Snapshot</div>' +
+                '<div class="tech-detail-dist-meta">Compared To Level Peers</div>' +
+              '</div>' +
+              statusBlock +
+            '</div>' +
           '</div>' +
         '</div>';
     }
@@ -3861,7 +3919,10 @@
     const labMed = median(all.map(d => d.d));
 
     // SVG layout
-    const W = 760, H = 200;
+    // SVG dimensions match the actual container width when in the 2-col
+    // layout (~480px on a typical desktop). Keeping the viewBox proportions
+    // matched to the rendered size means label spacing reads correctly.
+    const W = 480, H = 200;
     const padL = 8, padR = 8, padTop = 12, padBottom = 30;
     const plotW = W - padL - padR;
     const plotH = H - padTop - padBottom;
@@ -3943,25 +4004,33 @@
 
     return '' +
       '<div class="tech-detail-dist">' +
-        '<div class="tech-detail-dist-head">' +
-          '<div>' +
-            '<div class="tech-detail-dist-title">Repair Time Distribution</div>' +
-            '<div class="tech-detail-dist-meta">' +
-              techDur.length + ' Boards · Tech Median ' + techMed.toFixed(0) +
-              'm · Lab Median ' + labMed.toFixed(0) + 'm' +
+        '<div class="tech-detail-dist-body">' +
+          // Left section: histogram with its own header + legend stacked above it
+          '<div class="tech-detail-dist-section">' +
+            '<div class="tech-detail-dist-section-head">' +
+              '<div class="tech-detail-dist-title">Repair Time Distribution</div>' +
+              '<div class="tech-detail-dist-meta">' +
+                techDur.length + ' Boards · Tech Median ' + techMed.toFixed(0) +
+                'm · Lab Median ' + labMed.toFixed(0) + 'm' +
+              '</div>' +
+            '</div>' +
+            '<div class="tech-detail-dist-legend">' +
+              '<span class="tech-detail-dist-legend-item"><span class="tech-detail-dist-legend-dot" style="background:var(--dist-repair)"></span>Repair</span>' +
+              '<span class="tech-detail-dist-legend-item"><span class="tech-detail-dist-legend-dot" style="background:var(--dist-giveup)"></span>Give Up</span>' +
+              '<span class="tech-detail-dist-legend-item"><span class="tech-detail-dist-legend-dot" style="background:var(--dist-graveyard)"></span>Graveyard</span>' +
+            '</div>' +
+            '<div class="tech-detail-dist-canvas">' + svg +
+              '<div class="tdist-tooltip" id="tdistTooltip"></div>' +
             '</div>' +
           '</div>' +
-          '<div class="tech-detail-dist-legend">' +
-            '<span class="tech-detail-dist-legend-item"><span class="tech-detail-dist-legend-dot" style="background:var(--dist-repair)"></span>Repair</span>' +
-            '<span class="tech-detail-dist-legend-item"><span class="tech-detail-dist-legend-dot" style="background:var(--dist-giveup)"></span>Give Up</span>' +
-            '<span class="tech-detail-dist-legend-item"><span class="tech-detail-dist-legend-dot" style="background:var(--dist-graveyard)"></span>Graveyard</span>' +
+          // Right section: status panel with its own header
+          '<div class="tech-detail-dist-section">' +
+            '<div class="tech-detail-dist-section-head">' +
+              '<div class="tech-detail-dist-title">Performance Snapshot</div>' +
+              '<div class="tech-detail-dist-meta">Compared To Level Peers</div>' +
+            '</div>' +
+            renderTechStatusHTML(techObj) +
           '</div>' +
-        '</div>' +
-        '<div class="tech-detail-dist-body">' +
-          '<div class="tech-detail-dist-canvas">' + svg +
-            '<div class="tdist-tooltip" id="tdistTooltip"></div>' +
-          '</div>' +
-          renderTechStatusHTML(techObj) +
         '</div>' +
         smallN +
       '</div>';
@@ -5747,6 +5816,26 @@
     techs.forEach((t, idx) => {
       const kbN = t.kickbacks || 0;
       const kbR = t.kickbackRate || 0;
+      // Rework block — only shown for Senior Tech / Team Lead (the people who
+      // actually receive second-pass work) AND only when they have rework
+      // touches in this range. Defensive optional-chaining since older
+      // payloads may not include the rework field.
+      const lvl = (t.level || '').toLowerCase();
+      const isReworker = lvl.includes('senior') || lvl.includes('lead');
+      const rw = t.rework || null;
+      const showRework = isReworker && rw && (rw.touches || 0) > 0;
+      const reworkRow = showRework
+        ? '<div class="pr-tech-card-rework">' +
+            '<div class="pr-tech-card-rework-label">Rework (Second-Pass)</div>' +
+            '<div class="pr-tech-card-rework-stats">' +
+              rw.touches + ' touched · ' +
+              rw.repairs + ' repaired · ' +
+              (rw.giveups || 0) + ' give-up · ' +
+              (rw.graveyards || 0) + ' graveyard · ' +
+              '<strong>' + rw.pct + '% repair</strong>' +
+            '</div>' +
+          '</div>'
+        : '';
       html += '<div class="pr-tech-card">' +
                 '<div class="pr-tech-card-head">' +
                   '<span class="pr-tech-card-name">' + esc(t.name) + '</span>' +
@@ -5758,6 +5847,7 @@
                   '<div><div class="pr-tcm-label">BPH</div><div class="pr-tcm-value ' + prBphClass(t.bph) + '">' + fmtBPH(t.bph) + '</div></div>' +
                   '<div><div class="pr-tcm-label">Kickbacks</div><div class="pr-tcm-value ' + (kbN === 0 ? '' : prKbClass(kbR, kbN)) + '">' + kbN + (kbN === 0 ? '' : '<span style="font-size: 8pt; color: #555;"> · ' + fmtRate(kbR) + '%</span>') + '</div></div>' +
                 '</div>' +
+                reworkRow +
               '</div>';
     });
     html += '</div>';
@@ -5929,6 +6019,29 @@
               '<div class="pr-outcome"><div class="pr-outcome-label">Give-Ups</div><div class="pr-outcome-value">' + tech.giveups + '</div></div>' +
               '<div class="pr-outcome"><div class="pr-outcome-label">Graveyards</div><div class="pr-outcome-value">' + tech.graveyards + '</div></div>' +
             '</div>';
+
+    // Rework section — only render for Senior Tech / Team Lead with rework
+    // touches in this range. Second-pass work (boards previously given up
+    // on, now reworked) is graded separately from first-pass.
+    const techLvl = (tech.level || '').toLowerCase();
+    const isReworker = techLvl.includes('senior') || techLvl.includes('lead');
+    const rw = tech.rework || null;
+    if (isReworker && rw && (rw.touches || 0) > 0) {
+      html += '<div class="pr-section-h">Rework (Second-Pass)</div>';
+      html += '<div class="pr-outcomes">' +
+                '<div class="pr-outcome"><div class="pr-outcome-label">Touched</div><div class="pr-outcome-value">' + rw.touches + '</div></div>' +
+                '<div class="pr-outcome"><div class="pr-outcome-label">Repaired</div><div class="pr-outcome-value">' + rw.repairs + '</div></div>' +
+                '<div class="pr-outcome"><div class="pr-outcome-label">False ASICs</div><div class="pr-outcome-value">' + (rw.falseAsics || 0) + '</div></div>' +
+                '<div class="pr-outcome"><div class="pr-outcome-label">Give-Ups</div><div class="pr-outcome-value">' + (rw.giveups || 0) + '</div></div>' +
+                '<div class="pr-outcome"><div class="pr-outcome-label">Graveyards</div><div class="pr-outcome-value">' + (rw.graveyards || 0) + '</div></div>' +
+              '</div>';
+      html += '<div style="font-size: 9pt; color: #555; margin-top: 4px;">' +
+                'Rework repair rate: <strong>' + rw.pct + '%</strong> ' +
+                '(' + (rw.repairs - (rw.falseAsics || 0)) + ' of ' +
+                (rw.touches - (rw.falseAsics || 0)) + ' repairable). ' +
+                'Counts boards this tech worked that were previously logged as a give-up by another tech.' +
+              '</div>';
+    }
 
     // Adaptive breakdown table (replaces the old redundant Activity Summary)
     html += buildBreakdownHTML(tech.trend, esc(tech.name));

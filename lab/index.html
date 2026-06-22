@@ -1233,6 +1233,11 @@
   .teams-table td:not(:first-child) { text-align: center; }
   .teams-table tr:last-child td { border-bottom: none; }
   .teams-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+  /* Clickable rows (active techs) get a pointer cursor + slightly stronger
+     hover background so it reads as "this row will do something." Terminated
+     techs stay non-interactive — no useful drill-down for them. */
+  .teams-table tbody tr.clickable-row { cursor: pointer; }
+  .teams-table tbody tr.clickable-row:hover { background: rgba(255,255,255,0.045); }
   .team-name-cell {
     font-weight: 600;
     color: var(--text) !important;
@@ -3445,7 +3450,14 @@
       const kbDisplay = tKickbacks === 0
         ? '<span class="kb-cell muted">0</span>'
         : '<span class="kb-cell ' + tKbCls + '">' + tKickbacks + ' · ' + fmtRate(tKbRate) + '%</span>';
-      return '<tr>' +
+      // Click the row to drill into the single-tech view, same as clicking
+      // a tech card on a team panel. Terminated techs aren't clickable —
+      // no useful drill-down for them (they're not active in the lab).
+      const clickAttr = t.terminated
+        ? ''
+        : ' onclick="selectTech(' + JSON.stringify(t.name).replace(/"/g, '&quot;') + ')"';
+      const rowCls = t.terminated ? '' : ' class="clickable-row"';
+      return '<tr' + rowCls + clickAttr + '>' +
         '<td class="team-name-cell">' + esc(t.name) + '</td>' +
         '<td class="tech-title-cell' + (t.terminated ? ' terminated' : '') + '">' + esc(t.title || '—') + '</td>' +
         '<td>' + t.touches.toLocaleString() + '</td>' +

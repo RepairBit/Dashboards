@@ -879,14 +879,19 @@
     width: 8px; height: 8px; border-radius: 2px;
     display: inline-block;
   }
+  /* Chart fills its grid column width up to a sensible cap so it matches
+     the right-side status panel visually instead of leaving a big empty
+     gap to its right. Height is computed from the SVG's 480×260 aspect
+     ratio. */
   .tech-detail-dist-canvas {
     position: relative;
-    height: 200px;
+    width: 100%;
+    max-width: 600px;
   }
   .tech-detail-dist-canvas svg {
     display: block;
     width: 100%;
-    height: 100%;
+    height: auto;
   }
   /* Two-column body — histogram on the left, status block on the right.
      On wide screens (>= 900px) they sit side by side; below that the
@@ -3934,8 +3939,13 @@
     // SVG dimensions match the actual container width when in the 2-col
     // layout (~480px on a typical desktop). Keeping the viewBox proportions
     // matched to the rendered size means label spacing reads correctly.
-    const W = 480, H = 200;
-    const padL = 8, padR = 8, padTop = 12, padBottom = 30;
+    // SVG dimensions: with default preserveAspectRatio, the SVG scales
+    // uniformly to fit the container width, and the height follows the
+    // viewBox aspect ratio. This keeps text proportional to bars regardless
+    // of container width. Container CSS only sets width (height is computed
+    // from the SVG's aspect ratio: width × H/W).
+    const W = 480, H = 260;
+    const padL = 8, padR = 8, padTop = 12, padBottom = 44;
     const plotW = W - padL - padR;
     const plotH = H - padTop - padBottom;
     const barGap = 6;
@@ -3950,7 +3960,7 @@
       { key: 'k', cls: 'tdist-bar-graveyard' },
     ];
 
-    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
+    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '">';
     // Baseline
     svg += '<line class="tdist-axis-line" x1="' + padL + '" y1="' + (padTop + plotH).toFixed(1) +
            '" x2="' + (W - padR) + '" y2="' + (padTop + plotH).toFixed(1) + '"/>';
@@ -4000,13 +4010,14 @@
         svg += '<text class="tdist-count-label" x="' + (x + barW / 2).toFixed(1) +
                '" y="' + (padTop + plotH - totalH - 3).toFixed(1) + '">' + total + '</text>';
       }
-      // Bucket label below baseline
+      // Bucket label below baseline — sits 18 viewBox units down so it
+      // doesn't crowd the bars, with "minutes" caption at the very bottom.
       svg += '<text class="tdist-bucket-label" x="' + (x + barW / 2).toFixed(1) +
-             '" y="' + (padTop + plotH + 14).toFixed(1) + '">' + b.label + '</text>';
+             '" y="' + (padTop + plotH + 18).toFixed(1) + '">' + b.label + '</text>';
     });
     // X-axis caption
     svg += '<text class="tdist-bucket-label" x="' + (W / 2).toFixed(1) +
-           '" y="' + (H - 4).toFixed(1) + '">minutes</text>';
+           '" y="' + (H - 8).toFixed(1) + '">minutes</text>';
     svg += '</svg>';
 
     // Small-N caveat — under 10 boards is genuinely noisy for shape reading

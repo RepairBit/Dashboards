@@ -224,6 +224,11 @@
   .split-num { font-size: 30px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -0.8px; }
   .split-num.day { color: var(--day); }
   .split-num.night { color: var(--night); }
+  /* Good = repaired boards that ship (green, positive). Graveyard = boards
+     shipped as unrepairable (orange, neutral-negative). Kickbacks are red
+     but don't appear here since they never ship out. */
+  .split-num.good { color: var(--green); }
+  .split-num.graveyard { color: var(--orange); }
   .split-label { font-size: 11px; color: var(--muted-2); margin-top: 4px; }
   .split-bar { margin-top: 14px; height: 4px; background: rgba(255,255,255,0.06); border-radius: 999px; overflow: hidden; display: flex; }
   .shift-bar-day { background: var(--day); }
@@ -382,10 +387,17 @@
 
 <div class="kpi-strip">
   <div class="kpi-card">
-    <div class="kpi-head"><span class="kpi-label">Total Boards Out</span></div>
-    <div class="kpi-value-row">
-      <span class="kpi-value" id="s-units">—</span>
-      <span class="kpi-delta flat" id="s-units-delta">—</span>
+    <div class="kpi-head"><span class="kpi-label">Boards Out</span></div>
+    <div class="split-row">
+      <div class="split-col">
+        <span class="split-num good" id="s-units-good">—</span>
+        <span class="split-label">Good</span>
+      </div>
+      <div class="split-divider"></div>
+      <div class="split-col">
+        <span class="split-num graveyard" id="s-units-graveyard">—</span>
+        <span class="split-label">Graveyard</span>
+      </div>
     </div>
     <div class="kpi-sub" id="s-units-sub">—</div>
     <div class="kpi-sub" id="s-avg-sub">—</div>
@@ -935,8 +947,17 @@
 
   function renderLeadersChart(leaders) {
     const labels = leaders.map(t => t.name);
-    const passedData = leaders.map(t => Math.max(0, t.units - (t.kickbacks || 0)));
-    const kickbackData = leaders.map(t => t.kickbacks || 0);
+    // Split each coordinator's units into three stacks: repaired (green,
+    // good), graveyards (orange, unrepairable but still shipped), and
+    // kickbacks (red, came back — didn't really "ship out" but shown here
+    // as context for which coordinators handled boards that bounced). If
+    // the backend doesn't supply graveyards per-tech yet, gravData is
+    // zeros and the stack looks the same as before.
+    const gravData     = leaders.map(t => t.graveyards || 0);
+    const kickbackData = leaders.map(t => t.kickbacks  || 0);
+    const passedData   = leaders.map(t =>
+      Math.max(0, t.units - (t.kickbacks || 0) - (t.graveyards || 0))
+    );
     const ratePct = leaders.map(t => {
       const kb = t.kickbacks || 0;
       return t.units > 0 ? (kb / t.units) * 100 : 0;
@@ -949,9 +970,18 @@
         labels,
         datasets: [
           {
-            label: 'Passed',
+            label: 'Repaired',
             data: passedData,
             backgroundColor: COLORS.green,
+            borderColor: 'transparent',
+            borderWidth: 0,
+            borderRadius: 4,
+            stack: 'boards'
+          },
+          {
+            label: 'Graveyard',
+            data: gravData,
+            backgroundColor: COLORS.orange,
             borderColor: 'transparent',
             borderWidth: 0,
             borderRadius: 4,
@@ -982,15 +1012,20 @@
                 return items.length ? labels[items[0].dataIndex] : '';
               },
               label: function(c) {
+                // Emit the full breakdown from the first dataset only, so
+                // hovering any segment shows all three lines instead of
+                // three separate tooltips stacked on top of each other.
                 if (c.datasetIndex !== 0) return null;
                 const i = c.dataIndex;
                 const passed = passedData[i];
-                const kb = kickbackData[i];
-                const total = passed + kb;
-                const rate = ratePct[i].toFixed(1);
+                const grav   = gravData[i];
+                const kb     = kickbackData[i];
+                const total  = passed + grav + kb;
+                const rate   = ratePct[i].toFixed(1);
                 return [
                   'Total: ' + total.toLocaleString(),
-                  'Passed: ' + passed.toLocaleString(),
+                  'Repaired: ' + passed.toLocaleString(),
+                  'Graveyard: ' + grav.toLocaleString(),
                   'Kickback: ' + kb.toLocaleString() + ' · ' + rate + '%',
                 ];
               }
@@ -1289,7 +1324,15 @@
     if (!slice) return;
     const summary = slice.summary;
 
-    document.getElementById("s-units").textContent = summary.units.toLocaleString();
+    // Split total boards out into Good vs Graveyard. Kickbacks don't ship
+    // so they're excluded from both. If the backend supplies graveyards as
+    // a summary field, use it; otherwise fall back to zero (Good will equal
+    // units - kickbacks, matching the previous "Total Boards Out" behavior).
+    const gravOut = (summary.graveyards !== undefined ? summary.graveyards : 0);
+    const kbOut   = (summary.kickbacks  !== undefined ? summary.kickbacks  : 0);
+    const goodOut = Math.max(0, summary.units - kbOut - gravOut);
+    document.getElementById("s-units-good").textContent      = goodOut.toLocaleString();
+    document.getElementById("s-units-graveyard").textContent = gravOut.toLocaleString();
     document.getElementById("s-units-sub").textContent =
       summary.coordDays + " coordinator-day" + (summary.coordDays === 1 ? "" : "s") + " logged";
 
@@ -1304,7 +1347,10 @@
     }
 
     const deltas = summary.deltas || {};
-    renderDelta("s-units-delta", deltas.units);
+    // s-units-delta pill was removed when Total Boards Out was split into
+    // Good vs Graveyard — the split KPI doesn't have room for a delta pill.
+    // Deltas.units still available on the summary if we want to surface it
+    // in the sub-line later.
 
     document.getElementById("s-bph-day").textContent = fmtBPH(summary.dayBph);
     document.getElementById("s-bph-night").textContent = fmtBPH(summary.nightBph);

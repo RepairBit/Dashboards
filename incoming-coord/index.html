@@ -984,7 +984,8 @@
       labels.push(display);
     }
     // Color by shift heuristic: 7am-7pm = day color, else night color
-    // Day shift 6:00 AM – 2:59 PM; everything else is night const colors = labels.map((_, h) => (h >= 6 && h < 15) ? COLORS.day : COLORS.night);
+    // Day shift 6:00 AM – 2:59 PM; everything else is night
+    const colors = labels.map((_, h) => (h >= 6 && h < 15) ? COLORS.day : COLORS.night);
 
     const ctx = document.getElementById('hourlyChart');
     if (hourlyChart) hourlyChart.destroy();
@@ -1150,16 +1151,16 @@
     // BPH split
     document.getElementById("s-bph-day").textContent = fmtBPH(summary.dayBph);
     document.getElementById("s-bph-night").textContent = fmtBPH(summary.nightBph);
-    let bphSub = "Combined " + fmtBPH(summary.bph) + " · " + HOURS_PER_DAY + " hrs/day";
+    let bphSub = "Combined " + fmtBPH(summary.bph) + " · actual hours";
     if (summary.dayBph > 0 && summary.nightBph > 0) {
       if (summary.dayBph > summary.nightBph) {
         const lead = ((summary.dayBph - summary.nightBph) / summary.nightBph) * 100;
-        bphSub = "Day leading by " + lead.toFixed(0) + "% · " + HOURS_PER_DAY + " hrs/day";
+        bphSub = "Day leading by " + lead.toFixed(0) + "% · actual hours";
       } else if (summary.nightBph > summary.dayBph) {
         const lead = ((summary.nightBph - summary.dayBph) / summary.dayBph) * 100;
-        bphSub = "Night leading by " + lead.toFixed(0) + "% · " + HOURS_PER_DAY + " hrs/day";
+        bphSub = "Night leading by " + lead.toFixed(0) + "% · actual hours";
       } else {
-        bphSub = "Tied · " + HOURS_PER_DAY + " hrs/day";
+        bphSub = "Tied · actual hours";
       }
     }
     document.getElementById("s-bph-sub").textContent = bphSub;

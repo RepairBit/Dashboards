@@ -984,7 +984,7 @@
       labels.push(display);
     }
     // Color by shift heuristic: 7am-7pm = day color, else night color
-    const colors = labels.map((_, h) => (h >= 7 && h < 19) ? COLORS.day : COLORS.night);
+    // Day shift 6:00 AM – 2:59 PM; everything else is night const colors = labels.map((_, h) => (h >= 6 && h < 15) ? COLORS.day : COLORS.night);
 
     const ctx = document.getElementById('hourlyChart');
     if (hourlyChart) hourlyChart.destroy();
